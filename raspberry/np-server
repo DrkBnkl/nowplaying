@@ -182,6 +182,14 @@ def caldera_command(name, **params):
     http(CALDERA_URL + "/player/playback/%s?%s" % (name, q), CALDERA_HEADERS, timeout=4)
 
 
+def num(v):
+    """Zahl aus einer Geraeteantwort (Millisekunden), 0 wenn sie fehlt oder unlesbar ist."""
+    try:
+        return max(0, int(float(v)))
+    except (TypeError, ValueError):
+        return 0
+
+
 def caldera_timeline():
     """Calderas Musik-Timeline (was laeuft, Warteschlange) oder None, wenn nichts laeuft."""
     _, raw, _ = http(CALDERA_URL + "/player/timeline/poll?wait=0&commandID=0",
@@ -196,7 +204,82 @@ def caldera_timeline():
 
 
 SIMILAR_COUNT = int(os.environ.get("SIMILAR_COUNT", "10"))
-similar_state = {"seed": None, "machine": None}
+similar_state = {"seed": None}
+# X-Plex-Client-Identifier: ohne ihn lehnt der Server das Anlegen einer Warteschlange ab (400)
+PLEX_HEADERS = {"Accept": "application/json", "X-Plex-Token": PLEX_TOKEN,
+                "X-Plex-Client-Identifier": "nowplaying-display"}
+plex_machine_id = []
+# Zuletzt von Caldera gespielter Titel: Warteschlange, Titel, Stelle (ms) und wie Caldera den
+# Plex-Server anspricht. Damit laesst sich die Wiedergabe auch nach einem Stopp fortsetzen.
+caldera_last = {}
+
+
+def plex_machine():
+    if not plex_machine_id:
+        _, raw, _ = http(PLEX_URL + "/", PLEX_HEADERS)
+        plex_machine_id.append(json.loads(raw)["MediaContainer"]["machineIdentifier"])
+    return plex_machine_id[0]
+
+
+def caldera_play_media(queue, key, offset=0):
+    """Caldera eine Warteschlange des Plex-Servers ab dem Titel key abspielen lassen."""
+    server = {k: caldera_last[k] for k in ("machineIdentifier", "address", "port", "protocol")
+              if caldera_last.get(k)}
+    if len(server) < 4:  # Caldera hat den Server noch nicht gemeldet: aus PLEX_URL ableiten
+        u = urllib.parse.urlsplit(PLEX_URL)
+        server = {"machineIdentifier": plex_machine(), "address": u.hostname,
+                  "port": u.port or (443 if u.scheme == "https" else 32400), "protocol": u.scheme}
+    caldera_command("playMedia", containerKey=queue, key=key, offset=offset, **server)
+
+
+def play_caldera():
+    """Fortsetzen: pausiert -> weiterspielen; gestoppt -> die letzte Warteschlange an der
+    letzten Stelle neu starten (ein Stopp verwirft sie in Caldera, der Plex-Server hat sie noch)."""
+    if caldera_timeline() is not None:
+        caldera_command("play")
+        return True
+    if not (caldera_last.get("queue") and caldera_last.get("key")):
+        return False
+    caldera_play_media(caldera_last["queue"], caldera_last["key"], caldera_last.get("time", 0))
+    return True
+
+
+PLAYLIST_COUNT = 5
+playlist_cache = {"t": 0.0, "items": []}
+
+
+def playlists():
+    """Die zuletzt gespielten Musik-Playlists des Plex-Servers (fuer die Auswahl am Tablet)."""
+    if time.time() - playlist_cache["t"] < 60:
+        return playlist_cache["items"]
+    _, raw, _ = http(PLEX_URL + "/playlists?playlistType=audio&sort=lastViewedAt:desc",
+                     PLEX_HEADERS, timeout=10)
+    items = []
+    for m in (json.loads(raw).get("MediaContainer", {}).get("Metadata") or [])[:PLAYLIST_COUNT]:
+        art, thumb = None, m.get("composite") or m.get("thumb")
+        if thumb:
+            q = urllib.parse.urlencode({"width": 300, "height": 300, "minSize": 1, "upscale": 1, "url": thumb})
+            art = register_art(PLEX_URL + "/photo/:/transcode?" + q, {"X-Plex-Token": PLEX_TOKEN})
+        items.append({"id": str(m.get("ratingKey")), "title": m.get("title", ""),
+                      "count": m.get("leafCount") or 0, "art": art})
+    playlist_cache["t"], playlist_cache["items"] = time.time(), items
+    return items
+
+
+def start_playlist(pid):
+    """Playlist gemischt in Caldera starten. Nur Playlists aus der Auswahlliste."""
+    if pid not in [p["id"] for p in playlists()]:
+        return False
+    q = urllib.parse.urlencode({"type": "audio", "playlistID": pid, "shuffle": 1, "continuous": 0})
+    _, raw, _ = http(PLEX_URL + "/playQueues?" + q, PLEX_HEADERS, timeout=10, method="POST")
+    mc = json.loads(raw).get("MediaContainer", {})
+    tracks, sel = mc.get("Metadata") or [], mc.get("playQueueSelectedItemID")
+    if not mc.get("playQueueID") or not tracks:
+        return False
+    first = next((t for t in tracks if t.get("playQueueItemID") == sel), tracks[0])
+    caldera_play_media("/playQueues/%s" % mc["playQueueID"], first["key"])
+    playlist_cache["t"] = 0.0  # Reihenfolge "zuletzt gespielt" aendert sich
+    return True
 
 
 def similar_caldera():
@@ -210,18 +293,15 @@ def similar_caldera():
         return False
     if similar_state["seed"] == (queue, seed):
         return True  # fuer diesen Titel schon eingefuegt: zweites Tippen fuegt nichts doppelt ein
-    plex = {"Accept": "application/json", "X-Plex-Token": PLEX_TOKEN}
+    plex = PLEX_HEADERS
     _, raw, _ = http(PLEX_URL + "/library/metadata/%s/nearest?%s" % (
         seed, urllib.parse.urlencode({"limit": SIMILAR_COUNT + 1, "maxDistance": 0.25})), plex, timeout=10)
     ids = [str(m.get("ratingKey")) for m in json.loads(raw).get("MediaContainer", {}).get("Metadata") or []
            if m.get("ratingKey") and str(m.get("ratingKey")) != seed][:SIMILAR_COUNT]
     if not ids:
         return False
-    if not similar_state["machine"]:
-        _, raw, _ = http(PLEX_URL + "/", plex)
-        similar_state["machine"] = json.loads(raw)["MediaContainer"]["machineIdentifier"]
     uri = "server://%s/com.plexapp.plugins.library/library/metadata/%s" % (
-        similar_state["machine"], ",".join(ids))
+        plex_machine(), ",".join(ids))
     http(PLEX_URL + queue + "?" + urllib.parse.urlencode({"uri": uri, "next": 1}), plex,
          timeout=10, method="PUT")
     caldera_command("refreshPlayQueue", playQueueID=queue.rsplit("/", 1)[1])
@@ -237,10 +317,16 @@ def poll_caldera():
     key = tl.get("key") or (("/library/metadata/" + tl.get("ratingKey")) if tl.get("ratingKey") else "")
     if not key:
         return None
+    caldera_last.update(queue=tl.get("containerKey") or "", key=key, time=num(tl.get("time")))
+    for k in ("machineIdentifier", "address", "port", "protocol"):
+        if tl.get(k):
+            caldera_last[k] = tl.get(k)
     can = (tl.get("controllable") or "").split(",")
     item = dict(plex_meta(key), source="caldera", device="Caldera",
                 playing=tl.get("state") != "paused",
-                skip="skipNext" in can, stop="playPause" in can, play="playPause" in can,
+                skip="skipNext" in can, prev="skipPrevious" in can,
+                stop="playPause" in can, play="playPause" in can,
+                time=num(tl.get("time")), duration=num(tl.get("duration")),
                 similar=(tl.get("containerKey") or "").startswith("/playQueues/"))
     prefetch_art(item["art"])
     try:
@@ -355,8 +441,11 @@ def poll_wiim():
         "album": clean(md.get("album")),
         "art": register_art(art, insecure=True) if art.startswith("http") else None,
         "skip": True,
+        "prev": True,
         "stop": True,
         "play": True,
+        "time": num(st.get("curpos")),
+        "duration": num(st.get("totlen")),
     }
 
 
@@ -404,11 +493,22 @@ def current():
     # Pausiert und fortsetzbar: bleibt PAUSE_DELAY stehen, das Tablet zeigt den Play-Knopf
     paused = [i for i in items if i.get("play") and now - i["since"] < PAUSE_DELAY]
     if paused:
-        return dict(max(paused, key=lambda i: i["since"]), skip=False, stop=False, similar=False)
+        return dict(max(paused, key=lambda i: i["since"]), skip=False, prev=False, stop=False, similar=False)
     last = last_shown["item"]
     if last and now - last_shown["t"] < OFF_DELAY:
         return dict(last, playing=False)
     return {"source": "idle"}
+
+
+def shown():
+    """Wie current(), aber ohne Musik bleibt der zuletzt gespielte Titel stehen (pausiert,
+    "idle": True). Das Display ist dann aus; wird das Tablet von Hand geweckt, zeigt es den
+    letzten Titel mit Play-Knopf, und die Wiedergabe laesst sich dort fortsetzen."""
+    c = current()
+    last = last_shown["item"]
+    if c["source"] != "idle" or not last:
+        return c
+    return dict(last, playing=False, idle=True, skip=False, prev=False, stop=False, similar=False)
 
 
 # Bedienung vom Tablet: nur Quellen, die sich steuern lassen. Spotify Connect auf dem Pi
@@ -416,15 +516,16 @@ def current():
 # "stop" haelt die Wiedergabe an (Pause), damit "play" an derselben Stelle weiterspielen kann.
 CONTROL = {
     "skip": {"caldera": lambda: caldera_command("skipNext"), "wiim": lambda: wiim_command("next")},
+    "prev": {"caldera": lambda: caldera_command("skipPrevious"), "wiim": lambda: wiim_command("prev")},
     "stop": {"caldera": lambda: caldera_command("pause"), "wiim": lambda: wiim_command("pause")},
-    "play": {"caldera": lambda: caldera_command("play"), "wiim": lambda: wiim_command("resume")},
+    "play": {"caldera": play_caldera, "wiim": lambda: wiim_command("resume")},
     "similar": {"caldera": similar_caldera},
 }
 
 
 def control(cmd):
-    """Befehl (skip, stop, play, similar) an die Quelle, die gerade angezeigt wird. False, wenn das nicht geht."""
-    c = current()
+    """Befehl (skip, prev, stop, play, similar) an die Quelle, die gerade angezeigt wird. False, wenn das nicht geht."""
+    c = shown()
     fn = CONTROL[cmd].get(c.get("source")) if c.get(cmd) else None
     if not fn:
         return False
@@ -503,10 +604,11 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             return self.send(200, INDEX, "text/html; charset=utf-8")
         if path == "/api/now":
-            c = dict(current())
+            c = dict(shown())
             for k in ("since", "seen", "push", "track", "pid"):
                 c.pop(k, None)
-            c["display"] = "off" if c["source"] == "idle" else "on"
+            c["display"] = "off" if c["source"] == "idle" or c.pop("idle", False) else "on"
+            c["playlists"] = "caldera" in SOURCES
             for k in CONTROL:
                 c[k] = bool(c.get(k))
             c["spectrum"] = self.spectrum_url()
@@ -520,6 +622,12 @@ class Handler(BaseHTTPRequestHandler):
             if not art:
                 return self.send(404, b"", "text/plain")
             return self.send(200, art[0], art[1], "max-age=86400")
+        if path == "/api/playlists":
+            try:
+                items = playlists() if "caldera" in SOURCES else []
+            except Exception:  # noqa: BLE001 – Plex nicht erreichbar
+                items = []
+            return self.send(200, json.dumps(items).encode(), "application/json")
         if path == "/setup":
             return self.send(200, setup_page(), "text/html; charset=utf-8")
         self.send(404, b"not found", "text/plain")
@@ -538,6 +646,15 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 ok = control(path[5:])
             except Exception:  # noqa: BLE001 – Quelle nicht erreichbar
+                ok = False
+            return self.send(204 if ok else 409, b"", "text/plain")
+        if path == "/api/playlist":
+            if self.headers.get("X-NowPlaying") != "1":
+                return self.send(403, b"", "text/plain")
+            pid = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("id", [""])[0]
+            try:
+                ok = "caldera" in SOURCES and start_playlist(pid)
+            except Exception:  # noqa: BLE001 – Plex oder Caldera nicht erreichbar
                 ok = False
             return self.send(204 if ok else 409, b"", "text/plain")
         if path != "/api/librespot":
