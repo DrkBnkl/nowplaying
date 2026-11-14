@@ -680,6 +680,12 @@ def wait_card_free(timeout=10.0):
     return False
 
 
+def note(text):
+    """Zeile ins Protokoll (journalctl -u nowplaying). Haelt fest, wer die Wiedergabe steuert:
+    Caldera und Spotify nennen den Absender eines Befehls nicht."""
+    print(text, flush=True)
+
+
 switching = threading.Lock()   # ein Wechsel der Quelle zur Zeit
 last_switch = [0.0]
 
@@ -726,6 +732,8 @@ def check_conflict():
 def resolve_conflict(winner):
     if not switching.acquire(blocking=False):
         return
+    loser = "Plex" if winner == "spotify" else "Spotify"
+    note(f"Automatisch (immer nur eine Quelle): {loser} wird angehalten, {winner} spielt")
     try:
         if winner == "spotify":
             tl = caldera_timeline()
@@ -998,8 +1006,13 @@ def current():
     paused = [i for i in items if (i.get("play") or (i["source"] == "spotify" and spotify_ready()))
               and now - i["since"] < PAUSE_DELAY]
     if paused:
-        return dict(max(paused, key=lambda i: i["since"]), skip=False, prev=False, stop=False,
-                    similar=False, similar_off=False, albumplay=False)
+        p = max(paused, key=lambda i: i["since"])
+        # Die uebrigen Knoepfe gehen in der Pause nicht, bleiben am Tablet aber ausgegraut stehen
+        dimmed = [k for k in ("albumplay", "similar", "prev", "skip") if p.get(k)]
+        if p.get("similar_off") and "similar" not in dimmed:
+            dimmed.append("similar")
+        return dict(p, skip=False, prev=False, stop=False, similar=False, similar_off=False,
+                    albumplay=False, dimmed=dimmed)
     last = last_shown["item"]
     if last and now - last_shown["t"] < OFF_DELAY:
         return dict(last, playing=False)
@@ -1097,6 +1110,10 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    def note_command(self, what, ok):
+        """Bedienung ueber die Seite protokollieren, mit der Adresse des Absenders."""
+        note(f"Befehl {what} von {self.client_address[0]}: {'ok' if ok else 'nicht ausgefuehrt'}")
+
     def send(self, code, body, ctype, cache="no-store"):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -1166,18 +1183,22 @@ class Handler(BaseHTTPRequestHandler):
             # Eigener Kopf: fremde Webseiten koennen ihn im Browser nicht ungefragt mitsenden
             if self.headers.get("X-NowPlaying") != "1":
                 return self.send(403, b"", "text/plain")
+            src = shown().get("source")
             try:
                 ok = control(path[5:])
             except Exception:  # noqa: BLE001 – Quelle nicht erreichbar
                 ok = False
+            self.note_command(f"{path[5:]} ({src})", ok)
             return self.send(204 if ok else 409, b"", "text/plain")
         if path == "/api/switch":
             if self.headers.get("X-NowPlaying") != "1":
                 return self.send(403, b"", "text/plain")
+            src = shown().get("source")
             try:
                 ok = switch_source()
             except Exception:  # noqa: BLE001 – Spotify oder Caldera nicht erreichbar
                 ok = False
+            self.note_command(f"switch (weg von {src})", ok)
             return self.send(204 if ok else 409, b"", "text/plain")
         if path == "/api/favorite":
             if self.headers.get("X-NowPlaying") != "1":
@@ -1204,6 +1225,7 @@ class Handler(BaseHTTPRequestHandler):
                     ok = playlist_source() == "caldera" and start_playlist(pid)
             except Exception:  # noqa: BLE001 – Plex, Caldera oder Spotify nicht erreichbar
                 ok = False
+            self.note_command("playlist", ok)
             return self.send(204 if ok else 409, b"", "text/plain")
         if path != "/api/librespot":
             return self.send(404, b"", "text/plain")
@@ -1226,7 +1248,7 @@ if __name__ == "__main__":
     if SPOTIFY_CONNECT:
         threading.Thread(target=watch_librespot, daemon=True).start()
     active = list(SOURCES) + (["spotify"] if SPOTIFY_CONNECT else [])
-    print(f"Now Playing auf Port {PORT}, Quellen: {', '.join(active) or 'keine'}")
+    note(f"Now Playing auf Port {PORT}, Quellen: {', '.join(active) or 'keine'}")
     srv = ThreadingHTTPServer(("", PORT), Handler)
     srv.daemon_threads = True
     srv.serve_forever()

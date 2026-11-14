@@ -68,6 +68,8 @@
   #ctls #skip { margin-right: 0; }
   body.canskip #skip, body.canprev #prev, body.canstop #stop, body.cansimilar #similar,
   body.canalbum #albumplay { display: block; }
+  /* pausiert: die uebrigen Knoepfe bleiben stehen, ausgegraut und ohne Wirkung */
+  body.paused #albumplay, body.paused #similar, body.paused #prev, body.paused #skip { opacity: .3; }
   body.inalbum #albumplay { opacity: .3; }
   body.nosimilar #similar { opacity: .3; }   /* fuer diesen Titel kennt Plex keine aehnlichen */
   /* Playlists: Knopf oben rechts klappt die zuletzt gespielten der laufenden Quelle auf */
@@ -493,6 +495,11 @@ function render(d) {
   paused = view === "play" && !d.playing;
   if (view === "play" && (paused ? d.play : d.stop)) cls += " canstop";
   if (view === "play" && d.similar) cls += " cansimilar";
+  // pausiert: der Server nennt die Knoepfe, die sonst da waeren ("dimmed"); sie bleiben ausgegraut stehen
+  if (paused && d.dimmed) for (var q = 0; q < d.dimmed.length; q++) {
+    var dc = DIM_CLASS[d.dimmed[q]];
+    if (dc && (" " + cls + " ").indexOf(" " + dc + " ") < 0) cls += " " + dc;
+  }
   if (view === "play" && d["switch"]) {
     cls += " canswitch";
     swTarget = d["switch"] === "plex" ? "to-plex" : "to-spotify";   // Logo der Quelle, zu der es geht
@@ -547,11 +554,13 @@ function poll() {
 }
 
 /* Mehr davon, Stopp und naechster Titel: der Server reicht den Befehl an die spielende Quelle weiter */
+var DIM_CLASS = { albumplay: "canalbum", similar: "cansimilar", prev: "canprev", skip: "canskip" };
 var paused = false, swTarget = "to-spotify", inAlbum = false, noSimilar = false;
 function control(id) {
   var btn = el(id), busy = false;
   btn.onclick = function () {
     if (busy || (id === "albumplay" && inAlbum) || (id === "similar" && noSimilar)) return;
+    if (paused && id !== "stop") return;   // pausiert: nur Play geht, der Rest ist ausgegraut
     busy = true; btn.className = "ctl busy";
     var x = new XMLHttpRequest();
     x.open("POST", "api/" + (id === "stop" && paused ? "play" : id), true);
