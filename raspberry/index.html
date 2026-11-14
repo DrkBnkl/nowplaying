@@ -255,7 +255,7 @@ function connectSpectrum(url) {
    die dunklen Zellen werden einmal vorgezeichnet, und es wird nur neu gezeichnet,
    wenn sich mindestens eine Zelle aendert. */
 var cv = el("spec"), cx = cv.getContext("2d"), running = false, SCALE = 1, FRAME_MS = 33;  // 30 Bilder/s = Takt der Daten vom Pi
-var grid = document.createElement("canvas"), gridKey = "", shown = [], geo = null;
+var grid = document.createElement("canvas"), gridKey = "", shown = [], geo = null, lastFrame = 0;
 var BANDS = [[0, 5, "low"], [5, 8, "mid"], [8, 10, "high"]];  // Zeilen [von, bis) -> Farbe
 function cellY(r) { return geo.h - (r + 1) * geo.sh - r * geo.gy; }
 function layout() {
@@ -280,10 +280,16 @@ function frame() {
   setTimeout(frame, FRAME_MS);
   var now = new Date().getTime(), i, b, r;
   if (now - lastSpec > 1000) for (i = 0; i < N; i++) tg[i] = 0;
+  // Bewegung wie SpectrumBar.java in der App (dort je Bild bei 30 Bildern/s). Hier nach der
+  // wirklich vergangenen Zeit gerechnet: schafft das Tablet weniger Bilder, faellt die Leiste
+  // trotzdem gleich schnell. k = vergangene Bilder zu 33 ms, nach einer Pause hoechstens 4.
+  var k = Math.min(4, Math.max(1, (now - lastFrame) / FRAME_MS));
+  lastFrame = now;
+  var fall = 1 - Math.pow(.4, k), drop = .04 * k;
   var dirty = layout(), lit = [], peak = [];
   for (i = 0; i < N; i++) {
-    lv[i] += (tg[i] - lv[i]) * (tg[i] > lv[i] ? 1 : .6);     // wie SpectrumBar.java in der App
-    pk[i] = lv[i] >= pk[i] ? lv[i] : Math.max(lv[i], pk[i] - .04);
+    lv[i] = tg[i] > lv[i] ? tg[i] : lv[i] + (tg[i] - lv[i]) * fall;   // Anstieg sofort
+    pk[i] = lv[i] >= pk[i] ? lv[i] : Math.max(lv[i], pk[i] - drop);
     lit[i] = Math.round(lv[i] * M);
     peak[i] = Math.max(lit[i], Math.round(pk[i] * M)) - 1;
     if (shown[i] !== lit[i] * 16 + peak[i]) { shown[i] = lit[i] * 16 + peak[i]; dirty = true; }

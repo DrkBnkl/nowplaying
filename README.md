@@ -133,7 +133,8 @@ Nicht ins Repository gehören und sind per `.gitignore` ausgeschlossen: `raspber
 | Tablet zeigt gar nichts oder einen Ladefehler | Adresse in der App prüfen (lange drücken); läuft `nowplaying` auf dem Pi? |
 | Display bleibt aus, obwohl Musik läuft | `http://192.168.178.68:8080/setup`: Zeigt eine Quelle einen Fehler? |
 | Cover da, aber keine Leiste | Läuft die Musik über PlexAmpPi? `curl http://192.168.178.68:8090/status` |
-| Leiste läuft dem Ton voraus oder hinterher | `DELAY_MS` in `/etc/default/nowplaying-spectrum` anpassen |
+| Leiste läuft dem Ton voraus | `DELAY_MS` in `/etc/default/nowplaying-spectrum` erhöhen |
+| Leiste hinkt dem Ton hinterher | Steht `DELAY_MS` in `/etc/default/nowplaying-spectrum` auf 0? Weniger geht nicht; `install.sh` ändert eine vorhandene Datei nicht |
 | Leiste ruckelt | Belegt die App einen ganzen Prozessorkern? Dann zeichnet die Seite dauernd neu (z. B. durch eine Animation in `index.html`). |
 | Kein Ton über den Pi | WiiM auf optischem Eingang? Spielt gerade der andere Player (Caldera/Spotify)? |
 | Umschalter und Spotify-Knöpfe fehlen | `/setup`: „Spotify-Steuerung: eingerichtet“? Sonst Anmeldung wiederholen (`np-spotify-login`). |

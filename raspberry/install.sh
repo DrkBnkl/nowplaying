@@ -131,3 +131,13 @@ echo "  Spektrum:       curl http://$IP:8090/status"
 echo "Caldera neu starten, damit es das neue Standardgeraet nutzt:"
 echo "  systemctl --user restart caldera-music   (als Caldera-Benutzer)"
 echo "Rueckgaengig machen:  sudo ./uninstall.sh"
+# Vorhandene Einstellungen werden nie ueberschrieben. Weicht DELAY_MS von der Vorlage ab
+# (z.B. noch der fruehere Wert 40), darauf hinweisen: sonst bleibt der alte Wert unbemerkt.
+delay() { sed -n 's/^DELAY_MS=//p' "$1" | tail -n 1; }
+OLD=$(delay /etc/default/nowplaying-spectrum)
+NEW=$(delay nowplaying-spectrum.default)
+if [ -n "$OLD" ] && [ "$OLD" != "$NEW" ]; then
+  echo
+  echo "Hinweis: /etc/default/nowplaying-spectrum hat DELAY_MS=$OLD, die Vorlage DELAY_MS=$NEW."
+  echo "  Bei Bedarf dort aendern, dann: sudo systemctl restart nowplaying-spectrum"
+fi
