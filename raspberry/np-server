@@ -436,6 +436,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 INDEX_FILE = os.environ.get("INDEX_FILE", os.path.join(HERE, "index.html"))
 with open(INDEX_FILE, "rb") as f:
     INDEX = f.read()
+INDEX_VERSION = hashlib.sha1(INDEX).hexdigest()[:12]  # die Seite laedt sich neu, wenn sich das aendert
 
 
 def escape(s):
@@ -509,6 +510,7 @@ class Handler(BaseHTTPRequestHandler):
             for k in CONTROL:
                 c[k] = bool(c.get(k))
             c["spectrum"] = self.spectrum_url()
+            c["page"] = INDEX_VERSION
             return self.send(200, json.dumps(c).encode(), "application/json")
         if path.startswith("/art/"):
             try:

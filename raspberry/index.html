@@ -267,9 +267,49 @@ function drawCrop(canvas, img, w, h) {   // Bild mittig zuschneiden und fuellend
   g.drawImage(img, (img.width - iw) / 2, (img.height - ih) / 2, iw, ih, 0, 0, w, h);
 }
 function q(slide, cls) { return slide.getElementsByClassName(cls)[0]; }
-// Lange Woerter ohne Leerzeichen ("KAU;blu/quartet") duerfen hinter Trennzeichen umbrechen
-function soft(t) {
-  return (t || "").replace(/\S{13,}/g, function (w) { return w.replace(/([\/;:_.|-])/g, "$1\u200B"); });
+/* Zeilenumbruch: Text soll an sinnvollen Stellen umbrechen, nicht mitten in einem Zusatz.
+   - Klammerzusaetze "(feat. ...)" / "[Live ...]" und der Teil hinter " - " bleiben zusammen,
+     wenn sie in eine Zeile passen (Leerzeichen darin werden geschuetzt).
+   - Beim Interpreten bleibt jeder einzelne Name zusammen; umgebrochen wird zwischen den
+     Namen (hinter ";" oder ",").
+   - Passt ein einzelnes Wort nicht in die Zeile, wird die Schrift verkleinert (bis 60 %).
+     Erst wenn auch das nicht reicht, darf das Wort hinter Trennzeichen umbrechen. */
+// Breiten werden im Seitenlayout gemessen (unsichtbare Probe im Textfeld selbst), nicht per
+// Canvas: dessen Messung weicht im alten WebView des Tablets von der echten Darstellung ab.
+var probe = document.createElement("span");
+probe.style.cssText = "position:absolute;left:0;top:0;visibility:hidden;white-space:nowrap";
+function tidy(node, t, names) {
+  t = t || "";
+  node.style.fontSize = "";   // Verkleinerung vom vorigen Titel zuruecknehmen
+  node.textContent = "";
+  var w = node.clientWidth - 1, words = t.split(/\s+/), widest = 0, k;
+  if (w <= 0) return t;
+  node.appendChild(probe);    // erbt Schrift und Groesse; der Aufrufer ersetzt den Inhalt danach
+  function width(str) { probe.textContent = str; return probe.getBoundingClientRect().width; }
+  function fits(str) { return width(str) <= w; }
+  // Ein Wort, das allein nicht in die Zeile passt ("Melodiesinfonie"): Schrift verkleinern
+  // (bis auf 60 %), statt das Wort zu trennen
+  for (k = 0; k < words.length; k++) widest = Math.max(widest, width(words[k]));
+  if (widest > w) {
+    var size = parseFloat(getComputedStyle(node).fontSize);
+    // Android vergroessert die Schrift je nach Systemeinstellung (hier 115 %): Faktor ermitteln,
+    // sonst wird die "verkleinerte" Schrift groesser als vorher
+    node.style.fontSize = "100px";
+    var zoom = parseFloat(getComputedStyle(node).fontSize) / 100 || 1;
+    node.style.fontSize = Math.max(size * .6, Math.floor(size * w / widest * .98)) / zoom + "px";
+  }
+  function keep(str) { return fits(str) ? str.replace(/ /g, "\u00A0") : str; }
+  if (names) {
+    var parts = t.split(/(;\s*|,\s+)/);   // Namen und Trenner im Wechsel
+    for (var i = 0; i < parts.length; i++)
+      parts[i] = i % 2 ? (/\s$/.test(parts[i]) ? parts[i] : parts[i] + "\u200B") : keep(parts[i]);
+    t = parts.join("");
+  }
+  t = t.replace(/[(\[][^()\[\]]*[)\]]/g, keep);
+  t = t.replace(/^(.* [-\u2013\u2014] )(.+)$/, function (m, head, tail) { return head + keep(tail); });
+  return t.replace(/[^ \u00A0\u200B]+/g, function (word) {
+    return fits(word) ? word : word.replace(/([\/;:_.|-])/g, "$1\u200B");
+  });
 }
 function showSlide(d, e) {
   var next = cur < 0 ? 0 : 1 - cur, s = slides[next], p = e ? e.pal : DEFAULT_PAL;
@@ -282,7 +322,7 @@ function showSlide(d, e) {
   bg.style.webkitFilter = f; bg.style.filter = f;
   var t = [["artist", d.artist, p.t1], ["title", d.title, p.t2],
            ["meta", [d.album, d.year].filter(function (v) { return v; }).join(" · "), p.t3]];
-  for (var i = 0; i < t.length; i++) { var x = q(s, t[i][0]); x.textContent = soft(t[i][1]); x.style.color = t[i][2]; }
+  for (var i = 0; i < t.length; i++) { var x = q(s, t[i][0]); x.textContent = tidy(x, t[i][1], t[i][0] === "artist"); x.style.color = t[i][2]; }
   pal = p;   // Leiste nimmt die Farben des neuen Covers
   syncAppBar();
   s.className = "slide";            // sichtbar machen (noch transparent) ...
@@ -295,7 +335,13 @@ function showSlide(d, e) {
   }
   cur = next;
 }
+var pageVersion = null;
 function render(d) {
+  // Neue Fassung der Seite auf dem Pi installiert: neu laden (sonst erst beim Neustart der App)
+  if (d.page) {
+    if (pageVersion === null) pageVersion = d.page;
+    else if (d.page !== pageVersion) { location.reload(); return; }
+  }
   var view = d.source === "idle" ? "off" : "play";
   var cls = view;
   if (view === "play" && !d.playing) cls += " paused";
