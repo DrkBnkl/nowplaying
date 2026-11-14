@@ -72,8 +72,9 @@
   #prog { display: none; position: absolute; left: 5vw; width: 90vw; bottom: 17.6vh; height: .4vh;
     background: rgba(255,255,255,.10); border-radius: .2vh; overflow: hidden;
     -webkit-transform: translateZ(0); transform: translateZ(0); }
-  #prog i { display: block; height: 100%; width: 0; background: rgba(255,255,255,.55);
-    -webkit-transition: width 1s linear; transition: width 1s linear; }
+  /* bewusst ohne Animation: eine gleitende Linie laesst das alte Tablet die ganze Seite
+     dauernd neu zeichnen (ein Prozessorkern), und die LED-Leiste ruckelt dann */
+  #prog i { display: block; height: 100%; width: 0; background: rgba(255,255,255,.55); }
   body.hasprog #prog { display: block; }
   body.paused #prog { opacity: .5; }
   #stop .play, body.paused #stop .stop { display: none; }   /* pausiert: Stopp wird zu Play */
@@ -387,7 +388,9 @@ function render(d) {
   if (view === "play" && d.playlists && (d.source === "caldera" || !d.playing)) cls += " canlist";
   if (view === "play" && d.duration > 0) {
     cls += " hasprog";
-    el("prog").firstChild.style.width = Math.max(0, Math.min(100, d.time / d.duration * 100)) + "%";
+    // in Schritten von 0,5 %: die Seite wird nur neu gezeichnet, wenn sich die Linie sichtbar aendert
+    var pw = Math.round(Math.max(0, Math.min(100, d.time / d.duration * 100)) * 2) / 2 + "%", pf = el("prog").firstChild;
+    if (pf.style.width !== pw) pf.style.width = pw;
   }
   // pausiert (z. B. nach Stopp): derselbe Knopf setzt die Wiedergabe fort
   paused = view === "play" && !d.playing;
