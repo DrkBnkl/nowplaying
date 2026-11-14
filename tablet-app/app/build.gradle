@@ -11,8 +11,8 @@ android {
         minSdk 21
         // Bewusst niedrig: einfache Berechtigungen, laeuft problemlos auf Android 7
         targetSdk 28
-        versionCode 9
-        versionName '1.8'
+        versionCode 10
+        versionName '1.9'
     }
 
     // Fester Schluessel im Projekt, damit Updates ohne Deinstallation gehen.

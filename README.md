@@ -77,12 +77,15 @@ Untere Reihe, bündig mit dem Text:
 | Stopp / Play | hält an (Pause) bzw. spielt an derselben Stelle weiter | ja | ja | ja |
 | Vorwärts | nächster Titel | ja | ja | ja |
 
-Obere Reihe rechts:
+Obere Reihe rechts (Umschalter und Playlists stehen links neben dem Ansicht-Schalter):
 
 | Knopf | Wirkung |
 |---|---|
+| Ansicht (dreiteiliger Schalter, immer ganz oben rechts) | Drei Felder, jedes zeigt seine Ansicht als kleines Bild; das Feld der laufenden Ansicht ist hell. Antippen wählt direkt: alle Infos mit LED-Leiste · ohne Leiste mit Infos (größeres Cover, Knöpfe unten rechts, wie in der Ansicht des WiiM) · nur das Cover (mittig, so groß wie möglich; alle anderen Knöpfe, Text und Fortschrittslinie sind ausgeblendet). Gilt für Plex und Spotify gemeinsam; der Pi merkt sich die Wahl. |
 | Umschalter Plex / Spotify | Hält die laufende Quelle an und spielt die andere weiter (Plex an der letzten Stelle, Spotify dort, wo das Konto zuletzt war). Farbig ist das Logo der Quelle, die gerade läuft. Zu Spotify dauert es etwa 6 s, weil Caldera die Soundkarte erst 5 s nach der Pause freigibt. |
 | Playlists | Klappt die Auswahl auf: bis zu zehn Playlists der laufenden Quelle in zwei Spalten, Favoriten zuerst, dann die zuletzt gespielten. Antippen startet die Playlist. Der Stern markiert einen Favoriten, ohne zu starten. Oben der Schalter „Zufallswiedergabe“: mischt die laufende Warteschlange und gilt für die nächste gewählte Playlist. Das Feld schließt sich nach 10 s ohne Bedienung. |
+
+Läuft Musik direkt am WiiM (Radio, AirPlay, Spotify → WiiM), gibt es keine Leiste. Das Cover ist dann größer, die Knöpfe stehen unten rechts, und oben rechts steht nur der Umschalter (beide Logos grau, kein Playlist-Knopf). Antippen stellt den WiiM auf den optischen Eingang und spielt Plex an der letzten Stelle weiter. Dasselbe geschieht von selbst, wenn Plex oder Spotify auf dem Pi anders gestartet werden (z. B. aus der Plex-App), während der WiiM nicht auf dem optischen Eingang steht. Umgekehrt hält der Server Plex bzw. Spotify auf dem Pi an, sobald am WiiM eigene Musik startet (z. B. Spotify Connect am WiiM); das Tablet zeigt dann den WiiM.
 
 Lange auf den Bildschirm drücken öffnet die Einstellungen der App.
 
@@ -120,9 +123,9 @@ Nicht ins Repository gehören und sind per `.gitignore` ausgeschlossen: `raspber
 
 - **Raspberry** „PlexAmpPi“ (Pi 3B, HiFiBerry Digi, Debian 13, 192.168.178.68): Dienste `nowplaying`, `nowplaying-spectrum`, `raspotify` laufen.
   Caldera: Abtastrate der Quelle, Lautstärke 100, Lautheitsangleichung und Übergänge an. Spektrum-Verzögerung `DELAY_MS=0`. Spotify: Absenkung −2 dB, Web-Schnittstelle eingerichtet, Raspotify merkt sich die Anmeldung.
-- **Tablet** Lenovo Yoga Tab 3 8" (YT3-850L, Android 6.0.1, 192.168.178.109): App 1.8, Adresse `http://192.168.178.68:8080`, Display-Steuerung aktiv, Bildschirmsperre „Keine“, nicht benötigte Apps entfernt bzw. deaktiviert, USB-Debugging an.
+- **Tablet** Lenovo Yoga Tab 3 8" (YT3-850L, Android 6.0.1, 192.168.178.109): App 1.9, Adresse `http://192.168.178.68:8080`, Display-Steuerung aktiv, Bildschirmsperre „Keine“, nicht benötigte Apps entfernt bzw. deaktiviert, USB-Debugging an.
 - **Getestet** mit echter Musik: Plexamp und Spotify über den Pi mit Cover, Songinfos und Leiste; Überblendung; Display aus und an; Stopp/Play, Skip, Song Radio, Album, Playlist-Start, Favoriten und Zufallswiedergabe bei Plex; Umschalter in beide Richtungen; Skip, Stopp, Play und Playlist-Start bei Spotify; „immer nur eine Quelle“ in beide Richtungen (andere Quelle am Server vorbei gestartet).
-- **Noch nicht getestet:** alle Knöpfe am WiiM; Album-Knopf, Favoriten und Zufallswiedergabe bei Spotify; Neustart der App durch den Hintergrunddienst; Display aus nach 3 Minuten Pause.
+- **Noch nicht getestet:** alle Knöpfe am WiiM, die Ansicht des WiiM am Tablet und der Umschalter vom WiiM zu Plex; Album-Knopf, Favoriten und Zufallswiedergabe bei Spotify; Weiterlaufen der Seite nach Wecken von Hand ohne Musik (App 1.9); Display aus nach 3 Minuten Pause.
 
 ---
 

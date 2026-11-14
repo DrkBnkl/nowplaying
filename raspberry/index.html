@@ -75,7 +75,7 @@
   /* Playlists: Knopf oben rechts klappt die zuletzt gespielten der laufenden Quelle auf */
   /* obere Reihe (Umschalter, Playlists): rechtsbuendig, die rechte Kante schliesst mit dem
      Vorwaerts-Knopf der unteren Reihe ab (fuenf Knoepfe zu 9vh mit 2.5vh Abstand = 55vh) */
-  #tops { position: absolute; left: calc(13vw + 74vh); width: 55vh; top: 5vh; height: 9vh; white-space: nowrap;
+  #tops { position: absolute; left: auto; right: 5vw; width: 55vh; top: 5vh; height: 9vh; white-space: nowrap;
     -webkit-transform: translateZ(0); transform: translateZ(0); }
   #tops .ctl { position: relative; bottom: auto; float: right; margin-left: 2.5vh; }
   body.canlist #plbtn { display: block; }
@@ -131,6 +131,34 @@
   #prog i { display: block; height: 100%; width: 0; background: rgba(255,255,255,.55); }
   body.hasprog #prog { display: block; }
   body.paused #prog { opacity: .5; }
+  /* ---------- Grosse Ansicht ohne Leiste (Musik direkt am WiiM, oder mit dem
+     Ansicht-Knopf gewaehlt): grosses Cover; die Knoepfe stehen unten rechts, die obere
+     Reihe oben rechts, jeweils buendig mit dem Cover ---------- */
+  body.big .specspace { display: none; }
+  body.big .cover { width: 86vh; height: 86vh; }
+  body.big .info { margin-left: 5vw; margin-right: 0; }
+  body.big #ctls { left: auto; right: 5vw; bottom: 6.75vh; }
+  body.big #prog { bottom: 2.6vh; }
+  /* Ansicht-Schalter: dreiteilig, immer an derselben Stelle ganz oben rechts. Jedes Feld zeigt
+     seine Ansicht als kleines Bild (Cover, Textzeilen, Leiste); das Feld der laufenden Ansicht ist
+     hell. Antippen waehlt die Ansicht direkt. Die uebrige obere Reihe steht links daneben. */
+  #views { display: none; position: absolute; right: 5vw; top: 5vh; width: 25.5vh; height: 9vh;
+    box-sizing: border-box; border-radius: 4.5vh; overflow: hidden;
+    border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.07);
+    -webkit-transform: translateZ(0); transform: translateZ(0); -webkit-tap-highlight-color: transparent; }
+  body.canbar #views { display: block; }
+  body.canbar #tops { right: calc(5vw + 28vh); }
+  #views div { float: left; width: 33.33%; height: 100%; position: relative; color: rgba(255,255,255,.32); }
+  #views svg { position: absolute; left: 50%; top: 50%; width: 5.4vh; height: 5.4vh; margin: -2.7vh 0 0 -2.7vh;
+    fill: currentColor; }
+  #views.v-full .vf, #views.v-big .vb, #views.v-cover .vc { color: #fff; background: rgba(255,255,255,.17); }
+  /* ---------- Nur das Cover: mittig und so gross wie moeglich; von den Knoepfen bleibt
+     nur der Ansicht-Schalter (dezent), damit man zurueckkommt ---------- */
+  body.coveronly .info, body.coveronly #ctls, body.coveronly #swbtn, body.coveronly #plbtn { display: none; }
+  body.coveronly #prog, body.coveronly #plist { display: none !important; }
+  body.coveronly .top { -webkit-justify-content: center; justify-content: center; }
+  body.coveronly .cover { width: 90vh; height: 90vh; }
+  body.coveronly #views { opacity: .55; }
   #stop .play, body.paused #stop .stop { display: none; }   /* pausiert: Stopp wird zu Play */
   body.paused #stop .play { display: block; }
   .ctl.done { color: #fff; background: rgba(255,255,255,.22); }   /* kurz hell: eingefuegt */
@@ -162,6 +190,11 @@
   <div id="tops">
     <div id="plbtn" class="ctl"><svg viewBox="0 0 24 24"><path d="M3 6h12v2H3zM3 11h12v2H3zM3 16h8v2H3zM16 12v9l6-4.5z"/></svg></div>
     <div id="swbtn" class="ctl"><svg class="spotify" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11"/><path d="M6.2 9.1c3.9-1.1 8.6-.7 12 1.3M6.9 12.6c3.2-.9 7-.5 9.8 1.2M7.6 15.8c2.5-.6 5.3-.3 7.5 1" fill="none" stroke="#111" stroke-width="1.7" stroke-linecap="round"/></svg><svg class="plex" viewBox="0 0 24 24"><path d="M5.5 2h6.2l6.8 10-6.8 10H5.5l6.8-10z"/></svg></div>
+  </div>
+  <div id="views">
+    <div class="vf" data-view="full"><svg viewBox="0 0 24 24"><path d="M3 4h9v9H3zM14 5.5h7v2h-7zM14 9.5h5v2h-5zM3 20v-3h2v3zM6.5 20v-5h2v5zM10 20v-2h2v2zM13.5 20v-4h2v4zM17 20v-5h2v5z"/></svg></div>
+    <div class="vb" data-view="big"><svg viewBox="0 0 24 24"><path d="M3 5h13v14H3zM18 8h4v2h-4zM18 12h3v2h-3z"/></svg></div>
+    <div class="vc" data-view="cover"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/></svg></div>
   </div>
   <div id="plist"></div>
 </div>
@@ -432,7 +465,8 @@ function setPlaylist(slide, d) {
 // Der Textblock steht mittig zwischen den Knoepfen oben rechts und denen ueber der Leiste.
 // Wird er hoeher als der Platz dazwischen (knapp die halbe Hoehe), rutscht er in die Knoepfe: kuerzen.
 function fit(slide) {
-  var info = q(slide, "info"), max = window.innerHeight * .49, steps = ["t1", "t2", "t3"], cls = "info";
+  // grosse Ansicht: Knoepfe ganz oben und ganz unten, dazwischen ist mehr Platz
+  var info = q(slide, "info"), max = window.innerHeight * (bigView ? .62 : .49), steps = ["t1", "t2", "t3"], cls = "info";
   info.className = cls;
   for (var i = 0; i < steps.length && info.offsetHeight > max; i++) { cls += " " + steps[i]; info.className = cls; }
 }
@@ -473,6 +507,16 @@ function render(d) {
   }
   var view = d.source === "idle" ? "off" : "play";
   var cls = view;
+  wiimView = view === "play" && d.source === "wiim";
+  // Ansicht-Schalter (nur Plex/Spotify): "full" mit Leiste, "big" ohne Leiste wie beim WiiM, "cover" nur das Cover
+  var canBar = view === "play" && !wiimView && !!d.view, barOff = canBar && d.view !== "full";
+  var coverOnly = canBar && d.view === "cover";
+  bigView = wiimView || barOff;
+  if (bigView) cls += " big";
+  if (canBar) cls += " canbar";
+  if (barOff) cls += " nobar";
+  if (coverOnly) cls += " coveronly";
+  if (canBar && el("views").className !== "v-" + d.view) el("views").className = "v-" + d.view;
   if (view === "play" && !d.playing) cls += " paused";
   if (view === "play" && d.skip) cls += " canskip";
   if (view === "play" && d.prev) cls += " canprev";
@@ -502,27 +546,29 @@ function render(d) {
   }
   if (view === "play" && d["switch"]) {
     cls += " canswitch";
-    swTarget = d["switch"] === "plex" ? "to-plex" : "to-spotify";   // Logo der Quelle, zu der es geht
+    // farbig ist die Quelle, die laeuft; vom WiiM aus (fuehrt zu Plex) sind beide Logos grau
+    swTarget = wiimView ? "from-wiim" : d["switch"] === "plex" ? "to-plex" : "to-spotify";
     if (el("swbtn").className.indexOf("busy") < 0 && el("swbtn").className !== "ctl " + swTarget)
       el("swbtn").className = "ctl " + swTarget;
   }
   if (APP) {
     // Tablet-App: sie holt die Daten und zeichnet die Leiste, hier bleibt die eigene aus
-    appBar.on = view === "play" && !!d.spectrum; appBar.url = d.spectrum || "";
+    appBar.on = view === "play" && !!d.spectrum && !barOff; appBar.url = d.spectrum || "";
     syncAppBar();
     if (view === "play") cls += " nospec";
     document.body.className = cls;
   } else {
     connectSpectrum(d.spectrum || "");
     // Leiste nur zeigen, wenn der Pi gerade wirklich Signal liefert (Musik direkt am WiiM: keins)
-    var spec = view === "play" && d.spectrum && new Date().getTime() - lastSignal <= 4000;
+    var spec = view === "play" && d.spectrum && !barOff && new Date().getTime() - lastSignal <= 4000;
     if (view === "play" && !spec) cls += " nospec";
     document.body.className = cls;
     // Zeichnen nur, solange die Leiste sichtbar ist (spart Rechenzeit auf dem alten Tablet)
     setRunning(spec);
   }
   if (view !== "play") return;
-  var key = [d.art, d.artist, d.title, d.album, d.year].join("|");
+  // die Ansicht gehoert dazu: wechselt sie, wird das Cover in der neuen Groesse neu gezeichnet
+  var key = [d.art, d.artist, d.title, d.album, d.year, coverOnly ? "cover" : bigView ? "big" : ""].join("|");
   if (key !== shownKey && key !== wantKey) {
     wantKey = key;
     loadArt(d.art || "", function (e) {
@@ -555,6 +601,7 @@ function poll() {
 
 /* Mehr davon, Stopp und naechster Titel: der Server reicht den Befehl an die spielende Quelle weiter */
 var DIM_CLASS = { albumplay: "canalbum", similar: "cansimilar", prev: "canprev", skip: "canskip" };
+var wiimView = false, bigView = false;
 var paused = false, swTarget = "to-spotify", inAlbum = false, noSimilar = false;
 function control(id) {
   var btn = el(id), busy = false;
@@ -648,6 +695,17 @@ el("swbtn").onclick = function () {
   b.className = "ctl busy " + swTarget;
   post("api/switch", function () { b.className = "ctl " + swTarget; poll(); });
 };
+/* Ansicht-Schalter: Antippen eines Feldes waehlt dessen Ansicht; der Server merkt sie sich */
+(function () {
+  var fields = el("views").children;
+  for (var i = 0; i < fields.length; i++) (function (f) {
+    f.onclick = function () {
+      var v = f.getAttribute("data-view");
+      el("views").className = "v-" + v;   // sofort zeigen, die Abfrage bestaetigt es
+      post("api/view?to=" + v, function () { poll(); });
+    };
+  })(fields[i]);
+})();
 el("plbtn").onclick = function () {
   if (plist.className === "open") { closeList(); return; }
   get("api/playlists", function (items) {

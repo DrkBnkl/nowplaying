@@ -462,6 +462,39 @@ def favorites_load():
         pass
 
 
+# Einstellungen der Anzeige, die Neuladen und Neustart ueberstehen. "view": Ansicht bei Plex und
+# Spotify, am Tablet mit dem dreiteiligen Ansicht-Schalter gewaehlt:
+#   full  = alle Infos mit LED-Leiste
+#   big   = ohne Leiste, grosses Cover mit Infos (wie die Ansicht des WiiM)
+#   cover = nur das Cover
+VIEWS = ("full", "big", "cover")
+SETTINGS_FILE = os.path.join(STATE_DIR, "settings.json")
+settings = {"view": "full"}
+
+
+def settings_load():
+    try:
+        with open(SETTINGS_FILE) as f:
+            data = json.load(f)
+        if data.get("view") in VIEWS:
+            settings["view"] = data["view"]
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
+def set_view(view):
+    """Ansicht waehlen (eine aus VIEWS); wird sofort gespeichert. False bei unbekannter Ansicht."""
+    if view not in VIEWS:
+        return False
+    with lock:
+        settings["view"] = view
+        tmp = SETTINGS_FILE + ".neu"
+        with open(tmp, "w") as f:
+            json.dump(settings, f)
+        os.replace(tmp, SETTINGS_FILE)
+    return True
+
+
 def set_favorite(source, pid, on):
     """Playlist als Favorit markieren oder die Markierung entfernen; wird sofort gespeichert."""
     with lock:
@@ -654,6 +687,8 @@ def playlist_source():
     Eine Playlist zu starten ersetzt, was die Quelle spielt; deshalb nie die einer anderen
     Quelle anbieten, solange etwas laeuft."""
     c = shown()
+    if c.get("source") == "wiim":
+        return None  # Ansicht des WiiM: nur der Umschalter, keine Playlists
     if c.get("source") == "spotify":
         return "spotify" if spotify_ready() else None
     if "caldera" in SOURCES and (c.get("source") in ("caldera", "idle") or not c.get("playing")):
@@ -690,10 +725,27 @@ switching = threading.Lock()   # ein Wechsel der Quelle zur Zeit
 last_switch = [0.0]
 
 
+def caldera_resumable():
+    """Kann Plex gleich weiterspielen? Caldera haelt einen Titel bereit oder die letzte Warteschlange ist bekannt."""
+    with lock:
+        held = bool(state.get("caldera"))
+    return "caldera" in SOURCES and (held or bool(caldera_last.get("queue") and caldera_last.get("key")))
+
+
 def switch_source():
     """Umschalter Plex <-> Spotify: die laufende Quelle anhalten, die andere (weiter)spielen."""
     with switching:
         try:
+            if shown().get("source") == "wiim":
+                # Musik direkt am WiiM: den WiiM auf den optischen Eingang (Pi) stellen, Plex spielt weiter
+                if not caldera_resumable():
+                    return False
+                try:
+                    wiim_command("pause")
+                except Exception:  # noqa: BLE001 – z. B. Radio laesst sich nicht anhalten
+                    pass
+                wiim_command("switchmode:optical")
+                return play_caldera()
             if shown().get("source") == "spotify":
                 if "caldera" not in SOURCES:
                     return False
@@ -715,9 +767,59 @@ def switch_source():
             last_switch[0] = time.time()
 
 
+pi_playing = [None]   # spielte beim letzten Blick Plex oder Spotify auf dem Pi? (None: noch unbekannt)
+
+
+def wiim_follow():
+    """Beginnt Plex oder Spotify auf dem Pi zu spielen, waehrend der WiiM nicht auf dem optischen
+    Eingang steht (eigene Musik: Radio, AirPlay ..., auch pausiert), bliebe der Pi stumm: den WiiM
+    umstellen. Nur im Moment des Starts; wer danach am WiiM etwas anderes waehlt, behaelt es."""
+    with lock:
+        now_playing = any((state.get(k) or {}).get("playing") for k in ("caldera", "spotify"))
+        started = now_playing and pi_playing[0] is False
+        pi_playing[0] = now_playing
+    if not started or switching.locked():
+        return
+    try:
+        if wiim_mode() == WIIM_OPTICAL:
+            return
+        note("Automatisch: Musik auf dem Pi gestartet, WiiM wird auf den optischen Eingang gestellt")
+        wiim_command("switchmode:optical")
+    except Exception as e:  # noqa: BLE001 – WiiM nicht erreichbar
+        with lock:
+            errors["wiim-eingang"] = f"{type(e).__name__}: {e}"
+
+
+wiim_seen = [False]   # erster Blick auf den WiiM nach dem Start: nichts anhalten
+
+
+def wiim_started(prev, item):
+    """Umgekehrt: Beginnt der WiiM seine eigene Musik zu spielen (z. B. Spotify Connect am WiiM),
+    waehrend Plex oder Spotify auf dem Pi laeuft, ist der Pi nicht mehr zu hoeren: ihn anhalten,
+    damit auch das Tablet zum WiiM wechselt. Nur im Moment des Starts am WiiM."""
+    first, wiim_seen[0] = not wiim_seen[0], True
+    began = bool(item and item.get("playing")) and not (prev and prev.get("playing"))
+    if first or not began or switching.locked():
+        return
+    with lock:
+        busy = [k for k in ("caldera", "spotify") if (state.get(k) or {}).get("playing")]
+    for k in busy:
+        note(f"Automatisch: Musik am WiiM gestartet, {'Plex' if k == 'caldera' else 'Spotify'} auf dem Pi wird angehalten")
+        try:
+            if k == "caldera":
+                caldera_command("pause")
+            else:
+                spotify_command("PUT", "pause")
+        except Exception as e:  # noqa: BLE001 – Quelle nicht erreichbar
+            with lock:
+                errors["wiim-vorrang"] = f"{type(e).__name__}: {e}"
+
+
 def check_conflict():
     """Es darf immer nur eine Quelle spielen. Startet jemand Spotify, waehrend Plex laeuft (oder
     umgekehrt, z. B. vom Handy aus), gewinnt die zuletzt gestartete; die andere wird angehalten."""
+    if "wiim" in SOURCES:
+        wiim_follow()
     with lock:
         c, sp = state.get("caldera"), state.get("spotify")
         both = bool(c and sp and c.get("playing") and sp.get("playing"))
@@ -925,6 +1027,15 @@ def wiim_command(name):
     http(f"https://{WIIM_HOST}/httpapi.asp?command=setPlayerCmd:{name}", insecure=True)
 
 
+WIIM_OPTICAL = "43"   # "mode" des WiiM, wenn er den optischen Eingang (Pi) spielt
+
+
+def wiim_mode():
+    """Eingang, auf dem der WiiM gerade steht (Feld "mode" seines Status)."""
+    _, raw, _ = http(f"https://{WIIM_HOST}/httpapi.asp?command=getPlayerStatus", insecure=True)
+    return str(json.loads(raw).get("mode"))
+
+
 def poll_wiim():
     base = f"https://{WIIM_HOST}/httpapi.asp?command="
     _, raw, _ = http(base + "getPlayerStatus", insecure=True)
@@ -982,6 +1093,8 @@ def worker(name, fn):
                 errors.pop(name, None)
             if name == "caldera":
                 check_conflict()
+            elif name == "wiim":
+                wiim_started(prev, item)
         except Exception as e:  # noqa: BLE001 – Quelle darf nie den Server killen
             with lock:
                 errors[name] = f"{type(e).__name__}: {e}"
@@ -1148,9 +1261,12 @@ class Handler(BaseHTTPRequestHandler):
             c["switch"] = ""
             if spotify_ready() and "caldera" in SOURCES and c["source"] in ("caldera", "spotify"):
                 c["switch"] = "plex" if c["source"] == "spotify" else "spotify"
+            elif c["source"] == "wiim" and caldera_resumable():
+                c["switch"] = "plex"   # vom WiiM aus fuehrt der Umschalter immer zu Plex
             for k in CONTROL:
                 c[k] = bool(c.get(k))
             c["spectrum"] = self.spectrum_url()
+            c["view"] = settings["view"]
             c["page"] = INDEX_VERSION
             return self.send(200, json.dumps(c).encode(), "application/json")
         if path.startswith("/art/"):
@@ -1200,6 +1316,15 @@ class Handler(BaseHTTPRequestHandler):
                 ok = False
             self.note_command(f"switch (weg von {src})", ok)
             return self.send(204 if ok else 409, b"", "text/plain")
+        if path == "/api/view":
+            if self.headers.get("X-NowPlaying") != "1":
+                return self.send(403, b"", "text/plain")
+            to = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("to", [""])[0]
+            try:
+                ok = set_view(to)
+            except OSError:  # Einstellung nicht speicherbar
+                ok = False
+            return self.send(204 if ok else 409, b"", "text/plain")
         if path == "/api/favorite":
             if self.headers.get("X-NowPlaying") != "1":
                 return self.send(403, b"", "text/plain")
@@ -1244,6 +1369,7 @@ if __name__ == "__main__":
         threading.Thread(target=worker, args=(name, fn), daemon=True).start()
     spotify_load()
     favorites_load()
+    settings_load()
     threading.Thread(target=spotify_sync, daemon=True).start()
     if SPOTIFY_CONNECT:
         threading.Thread(target=watch_librespot, daemon=True).start()

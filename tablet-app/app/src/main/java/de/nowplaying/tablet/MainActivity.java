@@ -57,7 +57,6 @@ public class MainActivity extends Activity {
     private static final long RELOCK_MS = 60 * 1000;        // Anzeige vorne
     private static final long RELOCK_AWAY_MS = 5 * 60 * 1000; // andere App vorne
     private static final long UNREACHABLE_OFF_MS = 2 * 60 * 1000; // Server weg: Display aus
-    private static final long FRONT_MS = 60 * 1000;      // andere App vorne: so lange dulden
     private static final long PAGE_DEAD_MS = 30 * 1000;  // Seite meldet sich nicht: neu laden
 
     private WebView web;
@@ -69,11 +68,13 @@ public class MainActivity extends Activity {
     private String display = "on";
     private long wokenSince = 0;     // seit wann das Display trotz "off" an ist
     private boolean resumed = false;
-    private long awaySince = 0;             // seit wann eine andere App vorne ist
+    private boolean webPaused = false;      // Seite angehalten, solange das Display aus ist
     private long lastLoad = 0;              // letzter Ladeversuch der Seite
     private volatile long lastPing = 0;     // letztes Lebenszeichen der Seite (NowPlayingApp.alive)
     /** Laeuft die Anzeige in diesem Prozess? Fuer KeepAliveService. */
     static volatile boolean running = false;
+    /** Ist die Anzeige gerade vorne (sichtbar und bedienbar)? Fuer die Wache in KeepAliveService. */
+    static volatile boolean front = false;
     private AlertDialog settingsDialog;
 
     private DevicePolicyManager dpm;
@@ -212,12 +213,14 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         resumed = true;
+        front = true;
         hideSystemUi();
     }
 
     @Override
     protected void onPause() {
         resumed = false;
+        front = false;
         super.onPause();
     }
 
@@ -271,28 +274,15 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Haelt die Anzeige vorne und geladen (laeuft alle 3 Sekunden, nur bei eingeschaltetem Display):
-     * - Ist laenger als FRONT_MS eine andere App vorne, kommt die Anzeige zurueck nach vorn.
-     * - Meldet sich die Seite laenger als PAGE_DEAD_MS nicht, obwohl der Server erreichbar ist
-     *   (nie geladen, haengt, WebView abgestuerzt), wird sie neu geladen.
+     * Haelt die Seite geladen (laeuft alle 3 Sekunden, nur bei eingeschaltetem Display): Meldet sie
+     * sich laenger als PAGE_DEAD_MS nicht, obwohl der Server erreichbar ist (nie geladen, haengt,
+     * WebView abgestuerzt), wird sie neu geladen. Dass die Anzeige vorne bleibt, ueberwacht
+     * KeepAliveService: das muss auch gehen, wenn es diese Activity nicht mehr gibt.
      */
     @SuppressWarnings("deprecation")
     private void watchdog(boolean serverReachable) {
-        if (!alive || !pm.isScreenOn()) {
-            awaySince = 0;
-            return;
-        }
+        if (!alive || !pm.isScreenOn() || webPaused) return;
         long now = android.os.SystemClock.elapsedRealtime();
-        if (resumed) {
-            awaySince = 0;
-        } else if (awaySince == 0) {
-            awaySince = now;
-        } else if (now - awaySince >= FRONT_MS) {
-            awaySince = now;
-            android.util.Log.i("NowPlaying", "Andere App vorne: Anzeige zurueck nach vorn");
-            startActivity(new Intent(this, MainActivity.class)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
-        }
         if (serverReachable && baseUrl != null
                 && now - lastPing >= PAGE_DEAD_MS && now - lastLoad >= PAGE_DEAD_MS) {
             android.util.Log.i("NowPlaying", "Seite meldet sich nicht: neu laden");
@@ -331,10 +321,14 @@ public class MainActivity extends Activity {
     private void relockIfWoken() {
         if (!dpm.isAdminActive(admin) || !pm.isScreenOn()) {
             wokenSince = 0;
+            if (!pm.isScreenOn()) pauseWeb();   // wieder dunkel (auch von Hand ausgeschaltet)
             return;
         }
         long now = android.os.SystemClock.elapsedRealtime();
         if (wokenSince == 0) wokenSince = now;
+        // Von Hand geweckt: die Seite muss laufen, sonst steht ein eingefrorenes oder leeres Bild da
+        // und die Ueberwachung laedt sie alle 30 s vergeblich neu
+        resumeWeb();
         boolean front = resumed && (settingsDialog == null || !settingsDialog.isShowing());
         if (now - wokenSince >= (front ? RELOCK_MS : RELOCK_AWAY_MS)) {
             wokenSince = 0;
@@ -342,10 +336,25 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void pauseWeb() {
+        if (webPaused) return;
+        webPaused = true;
+        web.onPause();
+    }
+
+    /** Seite weiterlaufen lassen. Sie hat sich waehrend der Pause nicht gemeldet: der Ueberwachung
+     *  wie nach einem Laden Zeit geben, statt die Seite sofort neu zu laden. */
+    private void resumeWeb() {
+        if (!webPaused) return;
+        webPaused = false;
+        web.onResume();
+        lastLoad = android.os.SystemClock.elapsedRealtime();
+    }
+
     private void turnOff() {
         bar.setDisplayOff(true);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        web.onPause();
+        pauseWeb();
         if (dpm.isAdminActive(admin)) {
             dpm.lockNow();
         } else {
@@ -362,7 +371,7 @@ public class MainActivity extends Activity {
                 | PowerManager.ACQUIRE_CAUSES_WAKEUP | PowerManager.ON_AFTER_RELEASE, "nowplaying:wake");
         wake.acquire(5000);
         startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
-        web.onResume();
+        resumeWeb();
         hideSystemUi();
     }
 
@@ -424,6 +433,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         alive = false;
         running = false;
+        front = false;
         bar.shutdown();
         if (cpuLock != null && cpuLock.isHeld()) cpuLock.release();
         if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();

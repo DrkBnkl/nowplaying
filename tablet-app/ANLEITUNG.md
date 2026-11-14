@@ -62,7 +62,7 @@ Auf dem Yoga ist dafür USB-Debugging eingeschaltet (Entwickleroptionen).
 
 | Was | Verhalten |
 |---|---|
-| Andere App vorne | Nach 60 Sekunden holt sich die Anzeige in den Vordergrund zurück. Für Android-Einstellungen bleibt also jeweils eine Minute. |
+| Etwas anderes vorne (andere App, Startbildschirm) oder die Anzeige wurde geschlossen | Nach 60 Sekunden holt der Hintergrunddienst die Anzeige in den Vordergrund zurück bzw. startet sie neu. Für Android-Einstellungen bleibt also jeweils eine Minute. Gilt nur bei eingeschaltetem Display. |
 | Seite reagiert nicht | Die Seite meldet sich jede Sekunde bei der App. Bleibt das 30 Sekunden aus, obwohl der Pi erreichbar ist, lädt die App sie neu. |
 | Pi nicht erreichbar | Nach 2 Minuten geht das Display aus; sobald der Pi wieder antwortet und Musik läuft, geht es an. |
 | Android beendet die App | Ein Hintergrunddienst startet die Anzeige neu. |
