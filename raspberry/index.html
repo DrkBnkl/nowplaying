@@ -40,7 +40,7 @@
     -webkit-transform: translateZ(0); transform: translateZ(0); }  /* eigene Ebene ueber den Slides */
   body.paused .cover, body.paused .info { opacity: .5; }
   body.nospec #spec { visibility: hidden; }
-  /* Stopp und naechster Titel: rechts ueber der Leiste, nur wenn die Quelle das kann */
+  /* Mehr davon, Stopp und naechster Titel: rechts ueber der Leiste, nur wenn die Quelle das kann */
   .ctl { display: none; position: absolute; bottom: 22vh; width: 9vh; height: 9vh; border-radius: 50%;
     box-sizing: border-box; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.07);
     color: rgba(255,255,255,.6); -webkit-transform: translateZ(0); transform: translateZ(0);
@@ -49,7 +49,9 @@
   .ctl.busy { opacity: .35; }
   #skip { right: 5vw; }
   #stop { right: 5vw; margin-right: 11.5vh; }
-  body.canskip #skip, body.canstop #stop { display: block; }
+  #similar { right: 5vw; margin-right: 23vh; }
+  body.canskip #skip, body.canstop #stop, body.cansimilar #similar { display: block; }
+  .ctl.done { color: #fff; background: rgba(255,255,255,.22); }   /* kurz hell: eingefuegt */
 
   /* ---------- Keine Musik: schwarz, das Display geht aus ---------- */
   #off { background: #000; }
@@ -67,6 +69,7 @@
     <div class="info"><div class="artist"></div><div class="title"></div><div class="meta"></div></div>
   </div><div class="specspace"></div></div></div>
   <canvas id="spec"></canvas>
+  <div id="similar" class="ctl"><svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></div>
   <div id="stop" class="ctl"><svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></div>
   <div id="skip" class="ctl"><svg viewBox="0 0 24 24"><path d="M5 5v14l11-7zM17 5h2.6v14H17z"/></svg></div>
 </div>
@@ -296,6 +299,7 @@ function render(d) {
   if (view === "play" && !d.playing) cls += " paused";
   if (view === "play" && d.skip) cls += " canskip";
   if (view === "play" && d.stop) cls += " canstop";
+  if (view === "play" && d.similar) cls += " cansimilar";
   if (APP) {
     // Tablet-App: sie holt die Daten und zeichnet die Leiste, hier bleibt die eigene aus
     appBar.on = view === "play" && !!d.spectrum; appBar.url = d.spectrum || "";
@@ -332,7 +336,7 @@ function render(d) {
 }
 function poll() { get("api/now", render); }
 
-/* Stopp und naechster Titel: der Server reicht den Befehl an die spielende Quelle weiter */
+/* Mehr davon, Stopp und naechster Titel: der Server reicht den Befehl an die spielende Quelle weiter */
 function control(id) {
   var btn = el(id), busy = false;
   btn.onclick = function () {
@@ -342,11 +346,18 @@ function control(id) {
     x.open("POST", "api/" + id, true);
     x.setRequestHeader("X-NowPlaying", "1");
     x.timeout = 6000;
-    x.onloadend = function () { busy = false; btn.className = "ctl"; poll(); };
+    x.onloadend = function () {
+      busy = false; poll();
+      // "Mehr davon" aendert nichts Sichtbares: Erfolg kurz am Knopf zeigen
+      if (id === "similar" && x.status === 204) {
+        btn.className = "ctl done";
+        setTimeout(function () { btn.className = "ctl"; }, 1500);
+      } else btn.className = "ctl";
+    };
     x.send();
   };
 }
-control("skip"); control("stop");
+control("skip"); control("stop"); control("similar");
 
 poll();
 setInterval(poll, 1000);

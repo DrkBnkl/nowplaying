@@ -60,8 +60,8 @@ art_src = {}      # key -> (url, headers, insecure)
 art_cache = {}    # key -> (bytes, content-type)
 
 
-def http(url, headers=None, data=None, insecure=False, timeout=6):
-    req = urllib.request.Request(url, headers=headers or {}, data=data)
+def http(url, headers=None, data=None, insecure=False, timeout=6, method=None):
+    req = urllib.request.Request(url, headers=headers or {}, data=data, method=method)
     ctx = INSECURE if insecure else None
     with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
         return r.status, r.read(), r.headers.get("Content-Type", "")
@@ -172,13 +172,14 @@ CALDERA_HEADERS = {"X-Plex-Client-Identifier": "nowplaying-display",
 command_id = itertools.count(1)
 
 
-def caldera_command(name):
+def caldera_command(name, **params):
     """Befehl an Calderas Companion-Schnittstelle, z. B. skipNext oder stop."""
-    http(CALDERA_URL + "/player/playback/%s?type=music&commandID=%d" % (name, next(command_id)),
-         CALDERA_HEADERS, timeout=4)
+    q = urllib.parse.urlencode(dict(params, type="music", commandID=next(command_id)))
+    http(CALDERA_URL + "/player/playback/%s?%s" % (name, q), CALDERA_HEADERS, timeout=4)
 
 
-def poll_caldera():
+def caldera_timeline():
+    """Calderas Musik-Timeline (was laeuft, Warteschlange) oder None, wenn nichts laeuft."""
     _, raw, _ = http(CALDERA_URL + "/player/timeline/poll?wait=0&commandID=0",
                      CALDERA_HEADERS, timeout=4)
     tl = None
@@ -187,13 +188,56 @@ def poll_caldera():
             tl = t
     if tl is None or tl.get("state") not in ("playing", "paused", "buffering"):
         return None
+    return tl
+
+
+SIMILAR_COUNT = int(os.environ.get("SIMILAR_COUNT", "10"))
+similar_state = {"seed": None, "machine": None}
+
+
+def similar_caldera():
+    """"Mehr davon": klanglich aehnliche Titel (Klanganalyse des Plex-Servers) direkt hinter
+    dem laufenden Stueck in Calderas Warteschlange einfuegen. Der laufende Titel spielt weiter."""
+    tl = caldera_timeline()
+    if tl is None:
+        return False
+    seed, queue = tl.get("ratingKey") or "", tl.get("containerKey") or ""
+    if not seed or not queue.startswith("/playQueues/"):
+        return False
+    if similar_state["seed"] == (queue, seed):
+        return True  # fuer diesen Titel schon eingefuegt: zweites Tippen fuegt nichts doppelt ein
+    plex = {"Accept": "application/json", "X-Plex-Token": PLEX_TOKEN}
+    _, raw, _ = http(PLEX_URL + "/library/metadata/%s/nearest?%s" % (
+        seed, urllib.parse.urlencode({"limit": SIMILAR_COUNT + 1, "maxDistance": 0.25})), plex, timeout=10)
+    ids = [str(m.get("ratingKey")) for m in json.loads(raw).get("MediaContainer", {}).get("Metadata") or []
+           if m.get("ratingKey") and str(m.get("ratingKey")) != seed][:SIMILAR_COUNT]
+    if not ids:
+        return False
+    if not similar_state["machine"]:
+        _, raw, _ = http(PLEX_URL + "/", plex)
+        similar_state["machine"] = json.loads(raw)["MediaContainer"]["machineIdentifier"]
+    uri = "server://%s/com.plexapp.plugins.library/library/metadata/%s" % (
+        similar_state["machine"], ",".join(ids))
+    http(PLEX_URL + queue + "?" + urllib.parse.urlencode({"uri": uri, "next": 1}), plex,
+         timeout=10, method="PUT")
+    caldera_command("refreshPlayQueue", playQueueID=queue.rsplit("/", 1)[1])
+    similar_state["seed"] = (queue, seed)
+    queue_cache["id"] = None  # Vorschau des naechsten Titels neu holen
+    return True
+
+
+def poll_caldera():
+    tl = caldera_timeline()
+    if tl is None:
+        return None
     key = tl.get("key") or (("/library/metadata/" + tl.get("ratingKey")) if tl.get("ratingKey") else "")
     if not key:
         return None
     can = (tl.get("controllable") or "").split(",")
     item = dict(plex_meta(key), source="caldera", device="Caldera",
                 playing=tl.get("state") != "paused",
-                skip="skipNext" in can, stop="stop" in can)
+                skip="skipNext" in can, stop="stop" in can,
+                similar=(tl.get("containerKey") or "").startswith("/playQueues/"))
     prefetch_art(item["art"])
     try:
         item["next"] = plex_next(tl)
@@ -363,17 +407,17 @@ def current():
 CONTROL = {
     "skip": {"caldera": lambda: caldera_command("skipNext"), "wiim": lambda: wiim_command("next")},
     "stop": {"caldera": lambda: caldera_command("stop"), "wiim": lambda: wiim_command("stop")},
+    "similar": {"caldera": similar_caldera},
 }
 
 
 def control(cmd):
-    """Befehl (skip, stop) an die Quelle, die gerade angezeigt wird. False, wenn das nicht geht."""
+    """Befehl (skip, stop, similar) an die Quelle, die gerade angezeigt wird. False, wenn das nicht geht."""
     c = current()
     fn = CONTROL[cmd].get(c.get("source")) if c.get(cmd) else None
     if not fn:
         return False
-    fn()
-    return True
+    return fn() is not False
 
 
 # ------------------------------------------------------------ Webserver
