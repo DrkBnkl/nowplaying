@@ -37,7 +37,8 @@ import java.net.URL;
  *
  * Die App fragt alle 3 Sekunden /api/now ab. Meldet der Server
  * "display":"off" (keine Musik), wird das Display
- * ausgeschaltet, bei "on" wieder eingeschaltet.
+ * ausgeschaltet, bei "on" wieder eingeschaltet. Ist der Server laenger
+ * als 2 Minuten nicht erreichbar, geht das Display ebenfalls aus.
  *
  * Wird das Display ohne Musik von Hand geweckt, geht es von selbst wieder
  * aus: nach 1 Minute, solange die Anzeige vorne ist (Einstellungsfenster
@@ -53,6 +54,7 @@ public class MainActivity extends Activity {
     private static final long POLL_MS = 3000;
     private static final long RELOCK_MS = 60 * 1000;        // Anzeige vorne
     private static final long RELOCK_AWAY_MS = 5 * 60 * 1000; // andere App vorne
+    private static final long UNREACHABLE_OFF_MS = 2 * 60 * 1000; // Server weg: Display aus
 
     private WebView web;
     private SharedPreferences prefs;
@@ -183,17 +185,27 @@ public class MainActivity extends Activity {
         Thread t = new Thread(new Runnable() {
             @Override
             public void run() {
+                long failingSince = 0;
                 while (alive) {
                     String url = baseUrl;
                     if (url != null) {
+                        String state = null;
                         try {
-                            final String d = new JSONObject(fetch(url + "/api/now")).optString("display", "on");
+                            state = new JSONObject(fetch(url + "/api/now")).optString("display", "on");
+                            failingSince = 0;
+                        } catch (Exception ignored) {
+                            // Server nicht erreichbar: Zustand zunaechst beibehalten, nach
+                            // UNREACHABLE_OFF_MS das Display ausschalten (kein Standbild fuer Stunden)
+                            long now = android.os.SystemClock.elapsedRealtime();
+                            if (failingSince == 0) failingSince = now;
+                            else if (now - failingSince >= UNREACHABLE_OFF_MS) state = "off";
+                        }
+                        if (state != null) {
+                            final String d = state;
                             ui.post(new Runnable() {
                                 @Override
                                 public void run() { applyDisplay(d); }
                             });
-                        } catch (Exception ignored) {
-                            // Server nicht erreichbar: Zustand beibehalten
                         }
                     }
                     try { Thread.sleep(POLL_MS); } catch (InterruptedException e) { return; }

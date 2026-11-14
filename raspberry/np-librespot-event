@@ -18,6 +18,7 @@ def main():
     ev = {"event": os.environ.get("PLAYER_EVENT", "")}
     if not ev["event"]:
         return
+    ev["pid"] = os.getppid()  # librespot selbst: der Server merkt so, wenn der Prozess endet
     for f in FIELDS:
         v = os.environ.get(f.upper())
         if v:

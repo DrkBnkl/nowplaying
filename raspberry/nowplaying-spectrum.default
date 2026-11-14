@@ -1,7 +1,8 @@
 # Einstellungen fuer den Spektrum-Dienst. Nach Aenderungen:
 #   sudo systemctl restart nowplaying-spectrum
 
-# Port fuer das Tablet
+# Port fuer das Tablet. Bei Aenderung auch SPECTRUM_PORT in
+# /etc/default/nowplaying anpassen (und nowplaying neu starten)
 PORT=8090
 # Anzahl Balken (die Anzeige nutzt 40)
 BANDS=40

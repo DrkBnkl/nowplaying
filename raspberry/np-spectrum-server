@@ -83,7 +83,10 @@ def receiver():
                 continue
             if kind != 1 or pid != stream["pid"]:
                 continue
-            x = decode(pkt[5:])
+            try:
+                x = decode(pkt[5:])
+            except ValueError:  # Paketlaenge passt nicht zum Format: verwerfen, nicht abbrechen
+                continue
             if x is None or not len(x):
                 continue
             n = len(x)
@@ -106,6 +109,7 @@ def analyzer():
     ref = -20.0
     cache = {}
     period = 1.0 / FPS
+    sent = 0.0
     while True:
         t0 = time.time()
         with lock:
@@ -124,10 +128,14 @@ def analyzer():
                 hi = np.maximum(np.searchsorted(freqs, edges[1:]), lo + 1)
                 centers = np.sqrt(edges[:-1] * edges[1:])
                 tilt = TILT_DB * np.log2(centers / 1000.0)
-                cache[key] = (np.hanning(win).astype(np.float32), lo, hi, tilt)
-            w, lo, hi, tilt = cache[key]
+                # Im Bass sind die Baender schmaler als der FFT-Abstand: dort zwischen den
+                # Stuetzstellen interpolieren, sonst zeigen mehrere Balken denselben Wert
+                narrow = (edges[1:] - edges[:-1]) < freqs[1]
+                cache[key] = (np.hanning(win).astype(np.float32), lo, hi, tilt, freqs, centers, narrow)
+            w, lo, hi, tilt, freqs, centers, narrow = cache[key]
             mag = np.abs(np.fft.rfft(x * w)) / (win / 4)
             band = np.array([mag[a:b].max() for a, b in zip(lo, hi)])
+            band = np.where(narrow, np.interp(centers, freqs, mag), band)
             db = 20 * np.log10(band + 1e-9) + tilt
             peak = float(db.max())
             ref = peak if peak > ref else max(ref - 0.5 * period, peak, -60.0)  # Auto-Pegel
@@ -137,6 +145,10 @@ def analyzer():
         now = time.time()
         while frames and frames[0][0] <= now:
             _, txt = frames.popleft()
+            # Unveraenderte Bilder (Stille) nur zweimal pro Sekunde senden statt 30-mal
+            if txt == current["text"] and now - sent < 0.5:
+                continue
+            sent = now
             with cond:
                 current["text"] = txt
                 current["seq"] += 1

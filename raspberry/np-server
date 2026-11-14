@@ -44,6 +44,8 @@ INTERVAL = {
 OFF_DELAY = float(os.environ.get("OFF_DELAY", "10"))
 # Spektrum-Dienst: "auto" = gleicher Rechner wie diese Seite, Port 8090
 SPECTRUM_URL = os.environ.get("SPECTRUM_URL", "auto")
+# Port des Spektrum-Dienstes fuer "auto" (muss zu PORT in /etc/default/nowplaying-spectrum passen)
+SPECTRUM_PORT = int(os.environ.get("SPECTRUM_PORT", "8090"))
 STALE_AFTER = 30  # s ohne erfolgreiche Abfrage -> Quelle ignorieren
 
 INSECURE = ssl.create_default_context()
@@ -67,6 +69,7 @@ def http(url, headers=None, data=None, insecure=False, timeout=6):
 def register_art(url, headers=None, insecure=False):
     key = hashlib.sha1(url.encode()).hexdigest()[:16]
     with lock:
+        art_src.pop(key, None)  # hinten neu einsortieren: benutzte Eintraege fallen nicht heraus
         art_src[key] = (url, headers or {}, insecure)
         while len(art_src) > 300:
             art_src.pop(next(iter(art_src)))
@@ -91,7 +94,9 @@ def get_art(key):
 
 
 # ------------------------------------------------------------- Caldera
-meta_cache = {}   # Plex-key -> dict mit title, artist, album, year, art
+meta_cache = {}   # Plex-key -> die von plex_info genutzten Felder des Plex-Eintrags
+META_FIELDS = ("title", "originalTitle", "grandparentTitle", "parentTitle", "parentYear", "year",
+               "parentThumb", "thumb", "grandparentThumb")
 
 
 def plex_info(m):
@@ -109,14 +114,16 @@ def plex_info(m):
 
 
 def plex_meta(key):
-    if key in meta_cache:
-        return meta_cache[key]
-    _, raw, _ = http(PLEX_URL + key, {"Accept": "application/json", "X-Plex-Token": PLEX_TOKEN})
-    res = plex_info((json.loads(raw).get("MediaContainer", {}).get("Metadata") or [{}])[0])
-    meta_cache[key] = res
-    while len(meta_cache) > 200:
-        meta_cache.pop(next(iter(meta_cache)))
-    return res
+    m = meta_cache.get(key)
+    if m is None:
+        _, raw, _ = http(PLEX_URL + key, {"Accept": "application/json", "X-Plex-Token": PLEX_TOKEN})
+        m = (json.loads(raw).get("MediaContainer", {}).get("Metadata") or [{}])[0]
+        m = {k: m[k] for k in META_FIELDS if k in m}
+        meta_cache[key] = m
+        while len(meta_cache) > 200:
+            meta_cache.pop(next(iter(meta_cache)))
+    # jedes Mal neu: haelt die Cover-Quelle registriert, solange der Titel benutzt wird
+    return plex_info(m)
 
 
 def prefetch_art(key):
@@ -183,10 +190,36 @@ def poll_caldera():
 
 
 # ------------------------------------------- Spotify Connect (librespot)
+def best_cover(covers):
+    """Groesstes Cover waehlen. librespot liefert die Groessen nicht verlaesslich sortiert;
+    Spotify-Bild-URLs tragen die Groesse im Namen (0000b273 = 640 px Album, 0000ba8a = 640 px Podcast)."""
+    for mark in ("0000b273", "0000ba8a"):
+        for c in covers:
+            if mark in c:
+                return c
+    return covers[0]
+
+
+def watch_librespot():
+    """librespot meldet sich nur bei Ereignissen. Endet der Prozess ohne "stopped"
+    (Absturz, Neustart von Raspotify), wuerde der letzte Titel fuer immer als laufend gelten."""
+    while True:
+        time.sleep(5)
+        with lock:
+            cur = state.get("spotify")
+            pid = cur.get("pid") if cur else None
+            if pid and not os.path.exists(f"/proc/{pid}"):
+                state["spotify"] = None
+
+
 def librespot_event(ev):
     """Ereignis von np-librespot-event verarbeiten."""
     kind = ev.get("event", "")
     now = time.time()
+    # Prozessnummer von librespot; nur merken, wenn wir den Prozess auch sehen koennen
+    pid = ev.get("pid")
+    if not (isinstance(pid, int) and pid > 1 and os.path.exists(f"/proc/{pid}")):
+        pid = None
     with lock:
         cur = state.get("spotify")
         if kind in ("stopped", "session_disconnected"):
@@ -198,9 +231,10 @@ def librespot_event(ev):
                     "playing": bool(cur and cur.get("playing")),
                     "title": ev.get("name", ""),
                     "artist": ", ".join(a for a in (ev.get("artists") or ev.get("show_name") or "").splitlines() if a),
-                    "album": ev.get("album", ""), "art": None, "track": ev.get("track_id", "")}
+                    "album": ev.get("album", ""), "art": None, "track": ev.get("track_id", ""),
+                    "pid": pid or (cur and cur.get("pid"))}
             if covers:
-                item["art"] = covers[0]  # groesstes zuerst; Registrierung ausserhalb der Sperre
+                item["art"] = best_cover(covers)  # Registrierung ausserhalb der Sperre
             item["since"] = now
             item["seen"] = now
             state["spotify"] = item
@@ -210,11 +244,13 @@ def librespot_event(ev):
                 cur["since"] = now
             cur["playing"] = playing
             cur["seen"] = now
+            if pid:
+                cur["pid"] = pid
         elif kind == "playing":
             # Wiedergabe laeuft, Titelangaben folgen mit track_changed
             state["spotify"] = {"source": "spotify", "device": "PlexAmpPi", "push": True,
                                 "playing": True, "title": "", "artist": "", "album": "",
-                                "art": None, "since": now, "seen": now}
+                                "art": None, "since": now, "seen": now, "pid": pid}
         errors.pop("spotify", None)
         item = state.get("spotify")
         url = item.get("art") if item else None
@@ -359,10 +395,14 @@ class Handler(BaseHTTPRequestHandler):
     def spectrum_url(self):
         if SPECTRUM_URL.lower() != "auto":
             return SPECTRUM_URL
-        host = (self.headers.get("Host") or "").rsplit(":", 1)[0]
+        host = self.headers.get("Host") or ""
+        if host.startswith("["):  # IPv6-Adresse in Klammern, Port dahinter
+            host = host[:host.find("]") + 1]
+        else:
+            host = host.rsplit(":", 1)[0]
         if not host or host in ("127.0.0.1", "localhost"):
             host = "127.0.0.1"
-        return f"http://{host}:8090/spectrum"
+        return f"http://{host}:{SPECTRUM_PORT}/spectrum"
 
     def do_GET(self):
         path = self.path.split("?")[0]
@@ -370,7 +410,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, INDEX, "text/html; charset=utf-8")
         if path == "/api/now":
             c = dict(current())
-            for k in ("since", "seen", "push", "track"):
+            for k in ("since", "seen", "push", "track", "pid"):
                 c.pop(k, None)
             c["display"] = "off" if c["source"] == "idle" else "on"
             c["spectrum"] = self.spectrum_url()
@@ -404,6 +444,8 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     for name, fn in SOURCES.items():
         threading.Thread(target=worker, args=(name, fn), daemon=True).start()
+    if SPOTIFY_CONNECT:
+        threading.Thread(target=watch_librespot, daemon=True).start()
     active = list(SOURCES) + (["spotify"] if SPOTIFY_CONNECT else [])
     print(f"Now Playing auf Port {PORT}, Quellen: {', '.join(active) or 'keine'}")
     srv = ThreadingHTTPServer(("", PORT), Handler)

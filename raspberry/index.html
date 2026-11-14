@@ -102,9 +102,9 @@ function extractPalette(img) {
     var order = bins.map(function (b, idx) { return { b: b, i: idx }; })
       .filter(function (o) { return o.b.w > 0; })
       .sort(function (a, b) { return b.b.w - a.b.w; });
-    pal.lum = lum / (d.length / 4);
+    lum = lum / (d.length / 4);   // nicht in pal schreiben: das ist noch die Palette des gezeigten Covers
     if (!order.length) {
-      pal = { low: "#7A7A7A", mid: "#BDBDBD", high: "#F2F2F2", t1: "#F4F4F4", t2: "#CFCFCF", t3: "#9C9C9C", lum: pal.lum };
+      pal = { low: "#7A7A7A", mid: "#BDBDBD", high: "#F2F2F2", t1: "#F4F4F4", t2: "#CFCFCF", t3: "#9C9C9C", lum: lum };
       return;
     }
     function col(o, lMin) {
@@ -121,7 +121,7 @@ function extractPalette(img) {
     pal = { low: hsl(lo[0], lo[1], lo[2]), mid: hsl(m[0], m[1], m[2]), high: hsl(hi[0], hi[1], hi[2]),
             t1: hsl(m[0], Math.min(m[1], .45), .9),
             t2: hsl(m[0], Math.max(.45, Math.min(m[1], .8)), .72),
-            t3: hsl(m[0], .18, .64), lum: pal.lum };
+            t3: hsl(m[0], .18, .64), lum: lum };
   } catch (e) {}
 }
 
@@ -200,12 +200,16 @@ function setRunning(on) { if (on && !running) { running = true; frame(); } else 
 var DEFAULT_PAL = { low: "#7A7A7A", mid: "#BDBDBD", high: "#F2F2F2", t1: "#F4F4F4", t2: "#CFCFCF", t3: "#9C9C9C", lum: 0 };
 var slides = document.getElementsByClassName("slide"), cur = -1, shownKey = null, wantKey = null;
 var arts = {}, artOrder = [];   // Cover-Schluessel -> {img, pal}; geladene Bilder werden wiederverwendet
+var artFail = {}, failKey = null;   // Cover-Schluessel -> Zeit des letzten Fehlschlags; Titel, der ohne Cover gezeigt wird
 function paletteOf(img) { var saved = pal; extractPalette(img); var r = pal; pal = saved; return r; }
 function loadArt(art, cb) {
   if (!art) { if (cb) cb(null); return; }
   var e = arts[art];
   if (e && e.ready) { if (cb) cb(e); return; }
   if (e) { if (cb) e.cbs.push(cb); return; }
+  // nach einem Fehlschlag erst nach 10 s erneut versuchen
+  if (artFail[art] && new Date().getTime() - artFail[art] < 10000) { if (cb) cb(null); return; }
+  delete artFail[art];
   e = arts[art] = { ready: false, cbs: cb ? [cb] : [] };
   artOrder.push(art);
   while (artOrder.length > 6) delete arts[artOrder.shift()];
@@ -215,7 +219,12 @@ function loadArt(art, cb) {
     var c = e.cbs; e.cbs = [];
     for (var i = 0; i < c.length; i++) c[i](e);
   };
-  img.onerror = function () { delete arts[art]; var c = e.cbs; e.cbs = []; for (var i = 0; i < c.length; i++) c[i](null); };
+  img.onerror = function () {
+    artFail[art] = new Date().getTime();
+    if (arts[art] === e) { delete arts[art]; var k = artOrder.indexOf(art); if (k >= 0) artOrder.splice(k, 1); }
+    var c = e.cbs; e.cbs = [];
+    for (var i = 0; i < c.length; i++) c[i](null);
+  };
   img.src = "art/" + art;
 }
 function drawCrop(canvas, img, w, h) {   // Bild mittig zuschneiden und fuellend zeichnen
@@ -266,7 +275,14 @@ function render(d) {
     wantKey = key;
     loadArt(d.art || "", function (e) {
       if (wantKey !== key) return;   // inzwischen schon der naechste Titel
-      showSlide(d, e); shownKey = key; wantKey = null;
+      wantKey = null;
+      if (!e && d.art) {
+        // Cover gerade nicht ladbar: Text einmal ohne Cover zeigen, shownKey offen lassen,
+        // damit die naechsten Abfragen es erneut versuchen
+        if (failKey !== key) { failKey = key; shownKey = null; showSlide(d, null); }
+        return;
+      }
+      failKey = null; showSlide(d, e); shownKey = key;
     });
   }
   // naechsten Titel (Plexamp) schon vorladen, damit der Wechsel ohne Wartezeit ueberblendet
