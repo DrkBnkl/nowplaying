@@ -1,0 +1,34 @@
+#!/usr/bin/python3 -S
+"""Wird von librespot (Raspotify) bei jedem Ereignis aufgerufen (--onevent).
+
+librespot uebergibt die Angaben als Umgebungsvariablen (PLAYER_EVENT,
+NAME, ARTISTS, ALBUM, COVERS ...). Dieses Programm reicht sie an den
+Now-Playing-Server weiter. Es darf librespot nie aufhalten: kurzer
+Timeout, alle Fehler werden verschluckt.
+"""
+import json
+import os
+import urllib.request
+
+URL = os.environ.get("NOWPLAYING_EVENT_URL", "http://127.0.0.1:8080/api/librespot")
+FIELDS = ("name", "artists", "album", "covers", "track_id", "show_name", "item_type")
+
+
+def main():
+    ev = {"event": os.environ.get("PLAYER_EVENT", "")}
+    if not ev["event"]:
+        return
+    for f in FIELDS:
+        v = os.environ.get(f.upper())
+        if v:
+            ev[f] = v
+    req = urllib.request.Request(URL, data=json.dumps(ev).encode(),
+                                 headers={"Content-Type": "application/json"})
+    urllib.request.urlopen(req, timeout=2).read()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:  # noqa: BLE001
+        pass

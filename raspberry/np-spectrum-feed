@@ -1,0 +1,104 @@
+#!/usr/bin/python3 -S
+"""Wird von ALSA fuer jeden Wiedergabe-Stream gestartet (pcm "nowplaying").
+
+ALSA schreibt eine Kopie des Audiosignals als WAV auf stdin. Dieses
+Programm liest es und reicht es als Datagramme an np-spectrum-server
+weiter. Grundregel: NIEMALS die Wiedergabe aufhalten. Laeuft der Server
+nicht oder kommt er nicht hinterher, werden Daten einfach verworfen,
+stdin wird aber immer weiter zuegig gelesen.
+"""
+import os
+import socket
+import struct
+import sys
+
+SOCK = "/run/nowplaying-spectrum/audio.sock"
+inp = sys.stdin.buffer
+
+
+def readn(n):
+    buf = b""
+    while len(buf) < n:
+        chunk = inp.read(n - len(buf))
+        if not chunk:
+            return None
+        buf += chunk
+    return buf
+
+
+def drain():
+    while inp.read(65536):
+        pass
+
+
+def main():
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        sock.setblocking(False)
+    except OSError:
+        sock = None
+
+    def send(data):
+        if sock is None:
+            return
+        try:
+            sock.sendto(data, SOCK)
+        except OSError:
+            pass  # Server weg oder Puffer voll -> verwerfen
+
+    head = readn(12)
+    if not head:
+        return
+    fmt = None
+    if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
+        while True:
+            ch = readn(8)
+            if not ch:
+                return
+            cid, size = ch[:4], struct.unpack("<I", ch[4:])[0]
+            if cid == b"fmt ":
+                data = readn(size)
+                if not data:
+                    return
+                fmt = struct.unpack("<HHIIHH", data[:16])
+                if fmt[0] == 0xFFFE and len(data) >= 26:  # WAVE_FORMAT_EXTENSIBLE
+                    fmt = (struct.unpack("<H", data[24:26])[0],) + fmt[1:]
+            elif cid == b"data":
+                break
+            else:
+                if readn(size) is None:
+                    return
+    if fmt is None:
+        drain()
+        return
+
+    tag, channels, rate, _, block, bits = fmt
+    pid = os.getpid()
+    header = struct.pack("<IBIHHHH", pid, 0, rate, channels, bits, tag, block)
+    send(header)
+    prefix = struct.pack("<IB", pid, 1)
+    chunk = block * max(1, rate // 100)  # ca. 10 ms pro Datagramm
+    rest = b""
+    n = 0
+    while True:
+        data = inp.read(chunk)
+        if not data:
+            break
+        n += 1
+        if n % 100 == 0:
+            send(header)  # ca. jede Sekunde wiederholen: ein neu gestarteter Server findet den Strom sofort
+        data = rest + data
+        cut = len(data) - len(data) % block
+        rest = data[cut:]
+        if cut:
+            send(prefix + data[:cut])
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:  # noqa: BLE001 – auf keinen Fall abbrechen, sonst stockt die Wiedergabe
+        try:
+            drain()
+        except Exception:  # noqa: BLE001
+            pass

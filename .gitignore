@@ -1,0 +1,16 @@
+# Zugangsdaten (Plex-Token) – nie einchecken
+raspberry/nowplaying.env
+**/.env
+
+# Lokale bzw. erzeugte Dateien
+tablet-app/local.properties
+tablet-app/.gradle/
+tablet-app/build/
+tablet-app/app/build/
+.idea/
+*.iml
+__pycache__/
+.DS_Store
+
+# Fruehere Variante (Docker auf der NAS) und alte Bildschirmfotos, nur lokal archiviert
+alt/

@@ -1,0 +1,17 @@
+[Unit]
+Description=Now Playing Anzeige-Server (Cover, Wetter, Tag/Nacht fuer das Tablet)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/nowplaying
+Environment=INDEX_FILE=/usr/local/share/nowplaying/index.html
+ExecStart=/usr/local/bin/np-server
+DynamicUser=yes
+Nice=5
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

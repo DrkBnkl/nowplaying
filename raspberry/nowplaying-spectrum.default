@@ -1,0 +1,19 @@
+# Einstellungen fuer den Spektrum-Dienst. Nach Aenderungen:
+#   sudo systemctl restart nowplaying-spectrum
+
+# Port fuer das Tablet
+PORT=8090
+# Anzahl Balken (die Anzeige nutzt 40)
+BANDS=40
+# Bilder pro Sekunde
+FPS=30
+# Verzoegerung in Millisekunden. Laufen die Balken dem Ton voraus,
+# Wert erhoehen; hinken sie hinterher, verringern.
+DELAY_MS=40
+# Frequenzbereich in Hz
+FMIN=40
+FMAX=16000
+# Dynamikbereich in dB (kleiner = Balken springen staerker)
+RANGE_DB=45
+# Anhebung der Hoehen in dB pro Oktave
+TILT_DB=3

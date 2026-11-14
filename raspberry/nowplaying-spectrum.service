@@ -1,0 +1,17 @@
+[Unit]
+Description=Now Playing Spektrum-Dienst (FFT fuer die Tablet-Anzeige)
+After=network.target sound.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/nowplaying-spectrum
+ExecStart=/usr/local/bin/np-spectrum-server
+RuntimeDirectory=nowplaying-spectrum
+RuntimeDirectoryMode=0755
+DynamicUser=yes
+Nice=5
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

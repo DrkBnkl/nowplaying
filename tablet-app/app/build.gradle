@@ -1,0 +1,46 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'de.nowplaying.tablet'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'de.nowplaying.tablet'
+        minSdk 21
+        // Bewusst niedrig: einfache Berechtigungen, laeuft problemlos auf Android 7
+        targetSdk 28
+        versionCode 4
+        versionName '1.3'
+    }
+
+    // Fester Schluessel im Projekt, damit Updates ohne Deinstallation gehen.
+    // Nur fuer den privaten Gebrauch gedacht.
+    signingConfigs {
+        fixed {
+            storeFile file('../keystore/nowplaying.jks')
+            storePassword 'nowplaying'
+            keyAlias 'nowplaying'
+            keyPassword 'nowplaying'
+        }
+    }
+
+    buildTypes {
+        debug { signingConfig signingConfigs.fixed }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.fixed
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

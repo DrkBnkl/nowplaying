@@ -1,0 +1,411 @@
+#!/usr/bin/python3
+"""Now-Playing-Anzeige fuer das Tablet, laeuft auf dem Raspberry.
+
+Quellen (Prioritaet: was spielt, gewinnt; sonst das zuletzt pausierte):
+  caldera  Caldera Music auf diesem Pi (lokale Companion-Schnittstelle).
+           Titel und Cover kommen vom Plex-Server.
+  spotify  Spotify Connect auf diesem Pi (librespot/Raspotify).
+           librespot meldet Titelwechsel ueber np-librespot-event an
+           POST /api/librespot (nur von localhost angenommen).
+  wiim     alles, was direkt auf dem WiiM laeuft (Radio, AirPlay,
+           Spotify mit dem WiiM als Lautsprecher).
+
+Laeuft keine Musik, meldet /api/now nach OFF_DELAY Sekunden "display":"off";
+die Tablet-App schaltet dann das Display aus und bei Musik wieder ein.
+
+Nur Python-Standardbibliothek. Das Tablet spricht nur einfaches HTTP mit
+diesem Server; alle Cover werden hier durchgereicht (umgeht alte
+Zertifikate auf Android 6).
+"""
+import hashlib
+import json
+import os
+import ssl
+import threading
+import time
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+PORT = int(os.environ.get("PORT", "8080"))
+CALDERA_URL = os.environ.get("CALDERA_URL", "http://127.0.0.1:60339").rstrip("/")
+PLEX_URL = os.environ.get("PLEX_URL", "").rstrip("/")
+PLEX_TOKEN = os.environ.get("PLEX_TOKEN", "")
+WIIM_HOST = os.environ.get("WIIM_HOST", "")
+SPOTIFY_CONNECT = os.environ.get("SPOTIFY_CONNECT", "yes").lower() in ("1", "yes", "ja", "true", "on")
+
+INTERVAL = {
+    "caldera": float(os.environ.get("CALDERA_INTERVAL", "1")),
+    "wiim": float(os.environ.get("WIIM_INTERVAL", "5")),
+}
+# Sekunden, die nach Pause oder Ende der Musik das Cover (abgedunkelt) stehen
+# bleibt, bevor das Display ausgeht. Ueberbrueckt auch kurze Luecken zwischen Titeln.
+OFF_DELAY = float(os.environ.get("OFF_DELAY", "10"))
+# Spektrum-Dienst: "auto" = gleicher Rechner wie diese Seite, Port 8090
+SPECTRUM_URL = os.environ.get("SPECTRUM_URL", "auto")
+STALE_AFTER = 30  # s ohne erfolgreiche Abfrage -> Quelle ignorieren
+
+INSECURE = ssl.create_default_context()
+INSECURE.check_hostname = False
+INSECURE.verify_mode = ssl.CERT_NONE
+
+lock = threading.Lock()
+state = {}        # quelle -> item
+errors = {}       # quelle -> letzte Fehlermeldung
+art_src = {}      # key -> (url, headers, insecure)
+art_cache = {}    # key -> (bytes, content-type)
+
+
+def http(url, headers=None, data=None, insecure=False, timeout=6):
+    req = urllib.request.Request(url, headers=headers or {}, data=data)
+    ctx = INSECURE if insecure else None
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+        return r.status, r.read(), r.headers.get("Content-Type", "")
+
+
+def register_art(url, headers=None, insecure=False):
+    key = hashlib.sha1(url.encode()).hexdigest()[:16]
+    with lock:
+        art_src[key] = (url, headers or {}, insecure)
+        while len(art_src) > 300:
+            art_src.pop(next(iter(art_src)))
+    return key
+
+
+def get_art(key):
+    with lock:
+        if key in art_cache:
+            return art_cache[key]
+        src = art_src.get(key)
+    if not src:
+        return None
+    url, headers, insecure = src
+    _, body, ctype = http(url, headers, insecure=insecure, timeout=10)
+    art = (body, ctype or "image/jpeg")
+    with lock:
+        art_cache[key] = art
+        while len(art_cache) > 30:
+            art_cache.pop(next(iter(art_cache)))
+    return art
+
+
+# ------------------------------------------------------------- Caldera
+meta_cache = {}   # Plex-key -> dict mit title, artist, album, year, art
+
+
+def plex_info(m):
+    """Titel, Interpret, Album, Jahr und Cover-Schluessel aus einem Plex-Metadaten-Eintrag."""
+    art = None
+    thumb = m.get("parentThumb") or m.get("thumb") or m.get("grandparentThumb")
+    if thumb:
+        q = urllib.parse.urlencode({"width": 1000, "height": 1000, "minSize": 1,
+                                    "upscale": 1, "url": thumb})
+        art = register_art(PLEX_URL + "/photo/:/transcode?" + q, {"X-Plex-Token": PLEX_TOKEN})
+    year = m.get("parentYear") or m.get("year") or ""
+    return {"title": m.get("title", ""),
+            "artist": m.get("originalTitle") or m.get("grandparentTitle", ""),
+            "album": m.get("parentTitle", ""), "year": str(year) if year else "", "art": art}
+
+
+def plex_meta(key):
+    if key in meta_cache:
+        return meta_cache[key]
+    _, raw, _ = http(PLEX_URL + key, {"Accept": "application/json", "X-Plex-Token": PLEX_TOKEN})
+    res = plex_info((json.loads(raw).get("MediaContainer", {}).get("Metadata") or [{}])[0])
+    meta_cache[key] = res
+    while len(meta_cache) > 200:
+        meta_cache.pop(next(iter(meta_cache)))
+    return res
+
+
+def prefetch_art(key):
+    """Cover im Hintergrund in den Zwischenspeicher holen, damit das Tablet es sofort bekommt."""
+    if not key:
+        return
+    with lock:
+        if key in art_cache:
+            return
+
+    def run():
+        try:
+            get_art(key)
+        except Exception:  # noqa: BLE001
+            pass
+    threading.Thread(target=run, daemon=True).start()
+
+
+queue_cache = {"id": None, "next": None}   # (Warteschlange, Eintrag, Version) -> naechster Titel
+
+
+def plex_next(tl):
+    """Naechsten Titel aus Calderas Warteschlange auf dem Plex-Server holen (nur bei Titelwechsel)."""
+    q, item = tl.get("containerKey") or "", tl.get("playQueueItemID") or ""
+    if not q.startswith("/playQueues/") or not item:
+        return None
+    ident = (q, item, tl.get("playQueueVersion"))
+    if queue_cache["id"] == ident:
+        return queue_cache["next"]
+    _, raw, _ = http(PLEX_URL + q + "?" + urllib.parse.urlencode({"window": 2, "center": item}),
+                     {"Accept": "application/json", "X-Plex-Token": PLEX_TOKEN})
+    items = json.loads(raw).get("MediaContainer", {}).get("Metadata") or []
+    nxt = None
+    for i, m in enumerate(items):
+        if str(m.get("playQueueItemID")) == item and i + 1 < len(items):
+            nxt = plex_info(items[i + 1])
+    queue_cache["id"], queue_cache["next"] = ident, nxt
+    if nxt:
+        prefetch_art(nxt["art"])
+    return nxt
+
+
+def poll_caldera():
+    _, raw, _ = http(CALDERA_URL + "/player/timeline/poll?wait=0&commandID=0",
+                     {"X-Plex-Client-Identifier": "nowplaying-display",
+                      "X-Plex-Device-Name": "Now Playing"}, timeout=4)
+    tl = None
+    for t in ET.fromstring(raw).iter("Timeline"):
+        if t.get("type") == "music":
+            tl = t
+    if tl is None or tl.get("state") not in ("playing", "paused", "buffering"):
+        return None
+    key = tl.get("key") or (("/library/metadata/" + tl.get("ratingKey")) if tl.get("ratingKey") else "")
+    if not key:
+        return None
+    item = dict(plex_meta(key), source="caldera", device="Caldera",
+                playing=tl.get("state") != "paused")
+    prefetch_art(item["art"])
+    try:
+        item["next"] = plex_next(tl)
+    except Exception:  # noqa: BLE001 – ohne Vorschau geht es auch
+        item["next"] = None
+    return item
+
+
+# ------------------------------------------- Spotify Connect (librespot)
+def librespot_event(ev):
+    """Ereignis von np-librespot-event verarbeiten."""
+    kind = ev.get("event", "")
+    now = time.time()
+    with lock:
+        cur = state.get("spotify")
+        if kind in ("stopped", "session_disconnected"):
+            state["spotify"] = None
+            return
+        if kind == "track_changed":
+            covers = [c for c in (ev.get("covers") or "").splitlines() if c.startswith("http")]
+            item = {"source": "spotify", "device": "PlexAmpPi", "push": True,
+                    "playing": bool(cur and cur.get("playing")),
+                    "title": ev.get("name", ""),
+                    "artist": ", ".join(a for a in (ev.get("artists") or ev.get("show_name") or "").splitlines() if a),
+                    "album": ev.get("album", ""), "art": None, "track": ev.get("track_id", "")}
+            if covers:
+                item["art"] = covers[0]  # groesstes zuerst; Registrierung ausserhalb der Sperre
+            item["since"] = now
+            item["seen"] = now
+            state["spotify"] = item
+        elif kind in ("playing", "paused") and cur:
+            playing = kind == "playing"
+            if cur.get("playing") != playing:
+                cur["since"] = now
+            cur["playing"] = playing
+            cur["seen"] = now
+        elif kind == "playing":
+            # Wiedergabe laeuft, Titelangaben folgen mit track_changed
+            state["spotify"] = {"source": "spotify", "device": "PlexAmpPi", "push": True,
+                                "playing": True, "title": "", "artist": "", "album": "",
+                                "art": None, "since": now, "seen": now}
+        errors.pop("spotify", None)
+        item = state.get("spotify")
+        url = item.get("art") if item else None
+    if url and url.startswith("http"):
+        key = register_art(url)
+        with lock:
+            if state.get("spotify") is item:
+                item["art"] = key
+        prefetch_art(key)
+
+
+# ---------------------------------------------------------------- WiiM
+def poll_wiim():
+    base = f"https://{WIIM_HOST}/httpapi.asp?command="
+    _, raw, _ = http(base + "getPlayerStatus", insecure=True)
+    st = json.loads(raw)
+    if st.get("status") not in ("play", "pause"):
+        return None
+    _, raw, _ = http(base + "getMetaInfo", insecure=True)
+    md = json.loads(raw).get("metaData", {}) or {}
+
+    def clean(v):
+        v = (v or "").strip()
+        return "" if v.lower() in ("unknow", "unknown", "un_known", "null") else v
+
+    title = clean(md.get("title"))
+    art = clean(md.get("albumArtURI"))
+    if not title and not art.startswith("http"):
+        return None  # z. B. optischer Eingang (Pi) ohne Metadaten
+    return {
+        "source": "wiim",
+        "device": "WiiM",
+        "playing": st.get("status") == "play",
+        "title": title,
+        "artist": clean(md.get("artist")),
+        "album": clean(md.get("album")),
+        "art": register_art(art, insecure=True) if art.startswith("http") else None,
+    }
+
+
+SOURCES = {}
+if CALDERA_URL and PLEX_URL and PLEX_TOKEN:
+    SOURCES["caldera"] = poll_caldera
+if WIIM_HOST:
+    SOURCES["wiim"] = poll_wiim
+
+
+def worker(name, fn):
+    while True:
+        try:
+            item = fn()
+            now = time.time()
+            with lock:
+                prev = state.get(name)
+                if item:
+                    same = prev and prev.get("title") == item["title"] \
+                        and prev.get("playing") == item["playing"]
+                    item["since"] = prev["since"] if same else now
+                    item["seen"] = now
+                state[name] = item
+                errors.pop(name, None)
+        except Exception as e:  # noqa: BLE001 – Quelle darf nie den Server killen
+            with lock:
+                errors[name] = f"{type(e).__name__}: {e}"
+        time.sleep(INTERVAL[name])
+
+
+last_shown = {"item": None, "t": 0.0}
+
+
+def current():
+    """Was das Tablet zeigen soll. Laeuft nichts mehr (Pause, Stopp, Quelle weg),
+    bleibt das letzte Cover noch OFF_DELAY Sekunden abgedunkelt stehen."""
+    now = time.time()
+    with lock:
+        items = [state.get(k) for k in ("caldera", "spotify", "wiim")]
+    items = [i for i in items if i and (i.get("push") or now - i["seen"] < STALE_AFTER)]
+    for i in items:
+        if i["playing"]:
+            last_shown["item"], last_shown["t"] = i, now
+            return i
+    last = last_shown["item"]
+    if last and now - last_shown["t"] < OFF_DELAY:
+        return dict(last, playing=False)
+    return {"source": "idle"}
+
+
+# ------------------------------------------------------------ Webserver
+HERE = os.path.dirname(os.path.abspath(__file__))
+INDEX_FILE = os.environ.get("INDEX_FILE", os.path.join(HERE, "index.html"))
+with open(INDEX_FILE, "rb") as f:
+    INDEX = f.read()
+
+
+def escape(s):
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def setup_page():
+    rows = ""
+    names = [("caldera", "Caldera (Plexamp)"), ("spotify", "Spotify Connect"),
+             ("wiim", "WiiM")]
+    with lock:
+        for name, label in names:
+            if name == "spotify":
+                configured = SPOTIFY_CONNECT
+            else:
+                configured = name in SOURCES
+            if not configured:
+                st = "nicht konfiguriert"
+            elif name in errors:
+                st = "Fehler: " + errors[name]
+            elif state.get(name):
+                i = state[name]
+                st = f"OK – {'spielt' if i['playing'] else 'Pause'}: {i['artist']} – {i['title']}"
+            else:
+                st = "OK – nichts aktiv"
+            rows += f"<tr><td><b>{escape(label)}</b></td><td>{escape(st)}</td></tr>"
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Setup</title>
+<style>body{{font-family:sans-serif;max-width:700px;margin:2em auto;padding:0 1em}}
+td{{padding:4px 8px;vertical-align:top}}</style></head><body>
+<h1>Now Playing – Status</h1><table>{rows}</table>
+<p>Einstellungen: <code>/etc/default/nowplaying</code> auf dem Pi, danach
+<code>sudo systemctl restart nowplaying</code>.</p>
+<p><a href="/">→ Anzeige</a></p></body></html>""".encode()
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def send(self, code, body, ctype, cache="no-store"):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", cache)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def spectrum_url(self):
+        if SPECTRUM_URL.lower() != "auto":
+            return SPECTRUM_URL
+        host = (self.headers.get("Host") or "").rsplit(":", 1)[0]
+        if not host or host in ("127.0.0.1", "localhost"):
+            host = "127.0.0.1"
+        return f"http://{host}:8090/spectrum"
+
+    def do_GET(self):
+        path = self.path.split("?")[0]
+        if path in ("/", "/index.html"):
+            return self.send(200, INDEX, "text/html; charset=utf-8")
+        if path == "/api/now":
+            c = dict(current())
+            for k in ("since", "seen", "push", "track"):
+                c.pop(k, None)
+            c["display"] = "off" if c["source"] == "idle" else "on"
+            c["spectrum"] = self.spectrum_url()
+            return self.send(200, json.dumps(c).encode(), "application/json")
+        if path.startswith("/art/"):
+            try:
+                art = get_art(path[5:])
+            except Exception:  # noqa: BLE001
+                art = None
+            if not art:
+                return self.send(404, b"", "text/plain")
+            return self.send(200, art[0], art[1], "max-age=86400")
+        if path == "/setup":
+            return self.send(200, setup_page(), "text/html; charset=utf-8")
+        self.send(404, b"not found", "text/plain")
+
+    def do_POST(self):
+        if self.path.split("?")[0] != "/api/librespot":
+            return self.send(404, b"", "text/plain")
+        if self.client_address[0] not in ("127.0.0.1", "::1"):
+            return self.send(403, b"", "text/plain")
+        n = int(self.headers.get("Content-Length", 0) or 0)
+        try:
+            librespot_event(json.loads(self.rfile.read(n) or b"{}"))
+        except Exception as e:  # noqa: BLE001
+            with lock:
+                errors["spotify"] = f"{type(e).__name__}: {e}"
+        self.send(204, b"", "text/plain")
+
+
+if __name__ == "__main__":
+    for name, fn in SOURCES.items():
+        threading.Thread(target=worker, args=(name, fn), daemon=True).start()
+    active = list(SOURCES) + (["spotify"] if SPOTIFY_CONNECT else [])
+    print(f"Now Playing auf Port {PORT}, Quellen: {', '.join(active) or 'keine'}")
+    srv = ThreadingHTTPServer(("", PORT), Handler)
+    srv.daemon_threads = True
+    srv.serve_forever()
