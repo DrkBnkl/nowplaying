@@ -197,6 +197,7 @@ def plex_next(tl):
             and off is not None and total and album_tracks(cur["parentRatingKey"]) == total:
         ctx, title = "album", "Titel %d von %d" % (off + 1, total)
     queue_cache["playlist"], queue_cache["context"] = title, ctx
+    queue_cache["shuffled"] = bool(mc.get("playQueueShuffled"))
     if nxt:
         prefetch_art(nxt["art"])
     return nxt
@@ -303,6 +304,26 @@ def playlists():
     return items
 
 
+shuffle_pref = [True]   # letzte Wahl am Tablet; so starten auch neu gewaehlte Plex-Playlists
+
+
+def shuffle_caldera():
+    """Zufallswiedergabe der laufenden Warteschlange ein- oder ausschalten. Der laufende Titel
+    spielt weiter, nur die Reihenfolge der folgenden aendert sich."""
+    tl = caldera_timeline()
+    q = (tl.get("containerKey") or "") if tl is not None else ""
+    if not q.startswith("/playQueues/"):
+        shuffle_pref[0] = not shuffle_pref[0]  # nichts laeuft: gilt fuer die naechste Playlist
+        return True
+    plex_next(tl)  # Stand der Warteschlange sicher aktuell
+    on = not queue_cache.get("shuffled")
+    http(PLEX_URL + q + ("/shuffle" if on else "/unshuffle"), PLEX_HEADERS, data=b"", timeout=10, method="PUT")
+    caldera_command("refreshPlayQueue", playQueueID=q.rsplit("/", 1)[1])
+    queue_cache["id"] = None
+    shuffle_pref[0] = on
+    return True
+
+
 def play_album_caldera():
     """Das Album des laufenden Titels von Titel 1 an spielen (ersetzt die Warteschlange)."""
     tl = caldera_timeline()
@@ -322,10 +343,12 @@ def play_album_caldera():
 
 
 def start_playlist(pid):
-    """Playlist gemischt in Caldera starten. Nur Playlists aus der Auswahlliste."""
+    """Playlist in Caldera starten (gemischt, wenn die Zufallswiedergabe zuletzt an war).
+    Nur Playlists aus der Auswahlliste."""
     if pid not in [p["id"] for p in playlists()]:
         return False
-    q = urllib.parse.urlencode({"type": "audio", "playlistID": pid, "shuffle": 1, "continuous": 0})
+    q = urllib.parse.urlencode({"type": "audio", "playlistID": pid, "shuffle": 1 if shuffle_pref[0] else 0,
+                                "continuous": 0})
     _, raw, _ = http(PLEX_URL + "/playQueues?" + q, PLEX_HEADERS, timeout=10, method="POST")
     mc = json.loads(raw).get("MediaContainer", {})
     tracks, sel = mc.get("Metadata") or [], mc.get("playQueueSelectedItemID")
@@ -389,6 +412,8 @@ def poll_caldera():
                 stop="playPause" in can, play="playPause" in can,
                 time=num(tl.get("time")), duration=num(tl.get("duration")),
                 similar=(tl.get("containerKey") or "").startswith("/playQueues/"))
+    # Titel ohne Klanganalyse: der Knopf bleibt sichtbar, aber ausgegraut ("similar_off")
+    item["similar_off"] = item["similar"] and not item.get("analysed")
     item["similar"] = item["similar"] and item.pop("analysed", False)
     item["albumplay"] = bool(item.get("album_key"))
     prefetch_art(item["art"])
@@ -397,6 +422,8 @@ def poll_caldera():
         known = item["next"] is not None or queue_cache.get("id")
         item["playlist"] = queue_cache.get("playlist", "") if known else ""
         item["context"] = queue_cache.get("context", "") if known else ""
+        item["shuffle"] = bool(known)   # Zufallswiedergabe umschaltbar
+        item["shuffled"] = bool(known and queue_cache.get("shuffled"))
         # von "mehr davon" eingefuegte Titel stammen nicht aus der Playlist: statt des Namens
         # "Song Radio" mit dem Titel zeigen, auf den sich die Vorschlaege beziehen
         added = similar_added.get(tl.get("containerKey") or "", {})
@@ -523,6 +550,19 @@ def spotify_play():
     except urllib.error.HTTPError as e:
         if e.code != 403:  # 403 = spielt bereits
             raise
+    return True
+
+
+def shuffle_spotify():
+    """Zufallswiedergabe bei Spotify ein- oder ausschalten."""
+    dev = spotify_device()
+    on = not spotify_api("GET", "/me/player").get("shuffle_state")
+    spotify_api("PUT", "/me/player/shuffle?state=%s%s" % (
+        "true" if on else "false", "&device_id=" + urllib.parse.quote(dev["id"]) if dev else ""))
+    with lock:
+        cur = state.get("spotify")
+        if cur:
+            cur["shuffled"] = on
     return True
 
 
@@ -763,6 +803,7 @@ def spotify_enrich(item):
             if state.get("spotify") is not item:
                 return
             item["playlist"], item["context"] = name, kind if name else ""
+            item["shuffled"] = bool(p.get("shuffle_state"))
             if not item.get("title") and t.get("name"):
                 item["title"] = t["name"]
                 item["artist"] = ", ".join(a.get("name", "") for a in t.get("artists") or [])
@@ -860,7 +901,7 @@ def current():
               and now - i["since"] < PAUSE_DELAY]
     if paused:
         return dict(max(paused, key=lambda i: i["since"]), skip=False, prev=False, stop=False,
-                    similar=False, albumplay=False)
+                    similar=False, similar_off=False, albumplay=False)
     last = last_shown["item"]
     if last and now - last_shown["t"] < OFF_DELAY:
         return dict(last, playing=False)
@@ -875,10 +916,12 @@ def shown():
     last = last_shown["item"]
     if c["source"] == "idle" and last:
         c = dict(last, playing=False, idle=True, skip=False, prev=False, stop=False, similar=False,
-                 albumplay=False)
+                 similar_off=False, albumplay=False)
+        if c["source"] == "caldera":  # gestoppt: der Schalter stellt ein, wie die naechste Playlist startet
+            c.update(shuffle=True, shuffled=shuffle_pref[0])
     if c["source"] == "spotify" and spotify_ready():  # ueber die Web-Schnittstelle steuerbar
         live = bool(c.get("playing"))
-        c = dict(c, play=True, stop=live, skip=live, prev=live, albumplay=live)
+        c = dict(c, play=True, stop=live, skip=live, prev=live, albumplay=live, shuffle=True)
     return c
 
 
@@ -895,6 +938,7 @@ CONTROL = {
     "play": {"caldera": play_caldera, "wiim": lambda: wiim_command("resume"), "spotify": spotify_play},
     "similar": {"caldera": similar_caldera},
     "albumplay": {"caldera": play_album_caldera, "spotify": play_album_spotify},
+    "shuffle": {"caldera": shuffle_caldera, "spotify": shuffle_spotify},
 }
 
 

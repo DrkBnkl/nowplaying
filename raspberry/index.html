@@ -69,6 +69,7 @@
   body.canskip #skip, body.canprev #prev, body.canstop #stop, body.cansimilar #similar,
   body.canalbum #albumplay { display: block; }
   body.inalbum #albumplay { opacity: .3; }
+  body.nosimilar #similar { opacity: .3; }   /* fuer diesen Titel kennt Plex keine aehnlichen */
   /* Playlists: Knopf oben rechts klappt die zuletzt gespielten der laufenden Quelle auf */
   /* obere Reihe (Umschalter, Playlists): rechtsbuendig, die rechte Kante schliesst mit dem
      Vorwaerts-Knopf der unteren Reihe ab (fuenf Knoepfe zu 9vh mit 2.5vh Abstand = 55vh) */
@@ -80,6 +81,21 @@
      stehen fest nebeneinander (Plex links, Spotify rechts); farbig ist die Quelle, die gerade
      laeuft, die andere ist grau. Antippen wechselt zur anderen. */
   #swbtn { width: 17vh; border-radius: 4.5vh; }
+  /* Zufallswiedergabe: Schalter oben im Auswahlfeld, ueber beide Spalten */
+  .plhead { -webkit-column-span: all; column-span: all; display: -webkit-flex; display: flex;
+    -webkit-align-items: center; align-items: center; padding: .4vh 1.4vh 1vh; margin-bottom: .6vh;
+    border-bottom: 1px solid rgba(255,255,255,.12); font-size: 3.1vh; color: #E4E4E4;
+    -webkit-tap-highlight-color: transparent; }
+  .plhead svg { width: 4vh; height: 4vh; margin-right: 1.6vh; fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round; -webkit-flex: none; flex: none; }
+  .plhead span { -webkit-flex: 1; flex: 1; }
+  .plhead i { -webkit-flex: none; flex: none; width: 9vh; height: 5vh; border-radius: 2.5vh; background: #55575b;
+    position: relative; }
+  .plhead i:after { content: ""; position: absolute; left: .6vh; top: .6vh; width: 3.8vh; height: 3.8vh;
+    border-radius: 50%; background: #d9d9d9; }
+  .plhead.on i { background: #7fb08a; }
+  .plhead.on i:after { left: 4.6vh; background: #fff; }
+  .plhead.off { opacity: .4; }
   body.canswitch #swbtn { display: block; }
   #swbtn svg { top: 2.1vh; width: 4.8vh; height: 4.8vh; fill: rgba(255,255,255,.26); }
   #swbtn .plex { left: 3vh; }
@@ -88,19 +104,19 @@
   #swbtn.to-plex .spotify { fill: #1ED760; }
   /* bis zu zehn Eintraege in zwei Spalten (links 1-5, rechts 6-10), ohne Blaettern */
   #plist { display: none; position: absolute; left: 5vw; right: 5vw; top: 16vh; box-sizing: border-box;
-    padding: 1vh; border-radius: 1.6vh; background: rgba(46,47,49,.95); border: 1px solid rgba(255,255,255,.14);
+    padding: 1vh; border-radius: 1.6vh; background: #2e2f31; border: 1px solid rgba(255,255,255,.14);
     -webkit-column-count: 2; column-count: 2; -webkit-column-gap: 2vh; column-gap: 2vh;
     -webkit-transform: translateZ(0); transform: translateZ(0); }
   body.canlist #plist.open { display: block; }
   .pl { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center;
-    padding: .8vh 0 .8vh 1.4vh; border-radius: 1vh; font-size: 3.1vh; color: #E4E4E4; -webkit-tap-highlight-color: transparent;
+    padding: .55vh 0 .55vh 1.4vh; border-radius: 1vh; font-size: 3.1vh; color: #E4E4E4; -webkit-tap-highlight-color: transparent;
     -webkit-column-break-inside: avoid; break-inside: avoid; }
   .pl.busy { background: rgba(255,255,255,.14); }
-  .pl img { width: 7.4vh; height: 7.4vh; -webkit-flex: none; flex: none; border-radius: .8vh; background: #2a2a2a; }
+  .pl img { width: 6.8vh; height: 6.8vh; -webkit-flex: none; flex: none; border-radius: .8vh; background: #2a2a2a; }
   .pl span { -webkit-flex: 1; flex: 1; min-width: 0; margin: 0 1.6vh; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .pl small { font-size: 2.5vh; color: #8F8F8F; }
   /* Stern: Favorit setzen oder entfernen, ohne die Playlist zu starten */
-  .pl b { -webkit-flex: none; flex: none; width: 8.4vh; height: 7.4vh; position: relative; }
+  .pl b { -webkit-flex: none; flex: none; width: 8.4vh; height: 6.8vh; position: relative; }
   .pl b svg { position: absolute; left: 26%; top: 24%; width: 48%; height: 52%; fill: none; stroke: #7d7d7d; stroke-width: 1.8; }
   .pl b.on svg { fill: #F2C94C; stroke: #F2C94C; }
   #plist p { margin: 2vh; font-size: 3vh; color: #9C9C9C; }
@@ -453,6 +469,10 @@ function render(d) {
   if (view === "play" && d.skip) cls += " canskip";
   if (view === "play" && d.prev) cls += " canprev";
   if (view === "play" && d.albumplay) cls += " canalbum";
+  shuf.can = view === "play" && !!d.shuffle; shuf.on = !!d.shuffled;
+  paintShuffle();
+  noSimilar = view === "play" && !d.similar && !!d.similar_off;
+  if (noSimilar) cls += " cansimilar nosimilar";
   inAlbum = view === "play" && d.context === "album";
   if (inAlbum) cls += " inalbum";   // Album laeuft schon: Album-Knopf ausgegraut
   // Playlists der Quelle, die gerade laeuft (Plex oder Spotify); der Server entscheidet, ob es geht
@@ -521,11 +541,11 @@ function poll() {
 }
 
 /* Mehr davon, Stopp und naechster Titel: der Server reicht den Befehl an die spielende Quelle weiter */
-var paused = false, swTarget = "to-spotify", inAlbum = false;
+var paused = false, swTarget = "to-spotify", inAlbum = false, noSimilar = false;
 function control(id) {
   var btn = el(id), busy = false;
   btn.onclick = function () {
-    if (busy || (id === "albumplay" && inAlbum)) return;
+    if (busy || (id === "albumplay" && inAlbum) || (id === "similar" && noSimilar)) return;
     busy = true; btn.className = "ctl busy";
     var x = new XMLHttpRequest();
     x.open("POST", "api/" + (id === "stop" && paused ? "play" : id), true);
@@ -559,8 +579,26 @@ function post(url, done) {
   x.onloadend = function () { done(x.status === 204); };
   x.send();
 }
+// Schalter "Zufallswiedergabe" im Auswahlfeld: gilt fuer die laufende Warteschlange und fuer
+// die naechste gewaehlte Playlist
+var shuf = { can: false, on: false }, shufHead = null;
+function paintShuffle() {
+  if (shufHead) shufHead.className = "plhead" + (shuf.on ? " on" : "") + (shuf.can ? "" : " off");
+}
+function shuffleHead() {
+  shufHead = document.createElement("div");
+  shufHead.innerHTML = '<svg viewBox="0 0 24 24"><path d="M3 7h3l9 10h4M3 17h3l3-3.4M13 10.4L15 7h4M17 4.5L19.5 7L17 9.5M17 14.5L19.5 17L17 19.5"/></svg><span>Zufallswiedergabe</span><i></i>';
+  shufHead.onclick = function () {
+    if (!shuf.can) return;
+    shuf.on = !shuf.on; paintShuffle(); keepOpen();
+    post("api/shuffle", function () { poll(); });
+  };
+  paintShuffle();
+  return shufHead;
+}
 function fillList(items) {
   while (plist.firstChild) plist.removeChild(plist.firstChild);
+  plist.appendChild(shuffleHead());
   if (!items.length) { var p = document.createElement("p"); p.textContent = "Keine Playlists gefunden"; plist.appendChild(p); return; }
   for (var i = 0; i < items.length; i++) (function (it) {
     var row = document.createElement("div"), img = document.createElement("img"),
