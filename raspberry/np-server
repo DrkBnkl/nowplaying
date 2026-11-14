@@ -680,25 +680,85 @@ def wait_card_free(timeout=10.0):
     return False
 
 
+switching = threading.Lock()   # ein Wechsel der Quelle zur Zeit
+last_switch = [0.0]
+
+
 def switch_source():
     """Umschalter Plex <-> Spotify: die laufende Quelle anhalten, die andere (weiter)spielen."""
-    if shown().get("source") == "spotify":
-        if "caldera" not in SOURCES:
-            return False
+    with switching:
         try:
-            spotify_command("PUT", "pause")
-        except Exception:  # noqa: BLE001 – spielt schon nicht mehr
-            pass
-        wait_card_free()
-        return play_caldera()
-    if not spotify_ready() or not spotify_device():
-        return False
-    if "caldera" in SOURCES:
-        tl = caldera_timeline()
-        if tl is not None and tl.get("state") != "paused":
+            if shown().get("source") == "spotify":
+                if "caldera" not in SOURCES:
+                    return False
+                try:
+                    spotify_command("PUT", "pause")
+                except Exception:  # noqa: BLE001 – spielt schon nicht mehr
+                    pass
+                wait_card_free()
+                return play_caldera()
+            if not spotify_ready() or not spotify_device():
+                return False
+            if "caldera" in SOURCES:
+                tl = caldera_timeline()
+                if tl is not None and tl.get("state") != "paused":
+                    caldera_command("pause")
+            wait_card_free()
+            return spotify_play()
+        finally:
+            last_switch[0] = time.time()
+
+
+def check_conflict():
+    """Es darf immer nur eine Quelle spielen. Startet jemand Spotify, waehrend Plex laeuft (oder
+    umgekehrt, z. B. vom Handy aus), gewinnt die zuletzt gestartete; die andere wird angehalten."""
+    with lock:
+        c, sp = state.get("caldera"), state.get("spotify")
+        both = bool(c and sp and c.get("playing") and sp.get("playing"))
+        winner = "spotify" if both and sp["since"] >= c["since"] else "caldera"
+    if not both or switching.locked() or time.time() - last_switch[0] < 15:
+        return
+    if winner == "caldera" and not spotify_ready():
+        return  # ohne Web-Schnittstelle laesst sich Spotify nicht anhalten
+    threading.Thread(target=resolve_conflict, args=(winner,), daemon=True).start()
+
+
+def resolve_conflict(winner):
+    if not switching.acquire(blocking=False):
+        return
+    try:
+        if winner == "spotify":
+            tl = caldera_timeline()
+            if tl is not None and tl.get("state") != "paused":
+                caldera_command("pause")
+            wait_card_free()
+            # War die Soundkarte belegt, hat sich librespot beendet und startet gerade neu:
+            # warten, bis das Geraet wieder im Konto ist, dann die Wiedergabe dorthin holen
+            for _ in range(15):
+                if not spotify_ready():
+                    break
+                try:
+                    if spotify_play():
+                        break
+                except Exception:  # noqa: BLE001
+                    pass
+                time.sleep(3)
+        else:
+            try:
+                spotify_command("PUT", "pause")
+            except Exception:  # noqa: BLE001
+                pass
+            wait_card_free()
+            # Caldera hat die Soundkarte beim Start nicht bekommen und bleibt stumm: neu ansetzen
             caldera_command("pause")
-    wait_card_free()
-    return spotify_play()
+            time.sleep(0.5)
+            caldera_command("play")
+    except Exception as e:  # noqa: BLE001
+        with lock:
+            errors["umschalten"] = f"{type(e).__name__}: {e}"
+    finally:
+        last_switch[0] = time.time()
+        switching.release()
 
 
 # ------------------------------------------- Spotify Connect (librespot)
@@ -774,6 +834,42 @@ def librespot_event(ev):
         prefetch_art(key)
     if item and kind in ("track_changed", "playing") and spotify_ready():
         threading.Thread(target=spotify_enrich, args=(item,), daemon=True).start()
+    if kind in ("track_changed", "playing"):
+        check_conflict()
+
+
+def spotify_sync():
+    """Alle 10 s mit dem Spotify-Konto abgleichen, ob auf diesem Pi gespielt wird. librespot
+    meldet nur Ereignisse; nach einem Neustart dieses Servers oder einem verpassten Ereignis
+    wuesste er sonst nicht, dass Spotify laeuft (wichtig fuer "immer nur eine Quelle")."""
+    while True:
+        time.sleep(10)
+        if not spotify_ready():
+            continue
+        try:
+            p = spotify_api("GET", "/me/player")
+            here = ((p.get("device") or {}).get("name") or "").lower() == SPOTIFY_DEVICE.lower()
+            playing = bool(here and p.get("is_playing"))
+            now, found = time.time(), None
+            with lock:
+                cur = state.get("spotify")
+                if playing and not (cur and cur.get("playing")):
+                    if cur:
+                        cur.update(playing=True, seen=now)
+                    else:
+                        # "since" 0: lief schon vorher; eine eben gestartete andere Quelle gilt als neuer
+                        cur = state["spotify"] = {
+                            "source": "spotify", "device": "PlexAmpPi", "push": True, "playing": True,
+                            "title": "", "artist": "", "album": "", "art": None,
+                            "since": 0.0, "seen": now, "pid": None}
+                    found = cur
+                elif cur and cur.get("playing") and not playing and now - cur.get("seen", 0) > 15:
+                    cur.update(playing=False, since=now)  # laeuft laut Konto nicht mehr hier
+            if found:
+                spotify_enrich(found)
+                check_conflict()
+        except Exception:  # noqa: BLE001 – Spotify nicht erreichbar
+            pass
 
 
 def spotify_enrich(item):
@@ -876,6 +972,8 @@ def worker(name, fn):
                     item["seen"] = now
                 state[name] = item
                 errors.pop(name, None)
+            if name == "caldera":
+                check_conflict()
         except Exception as e:  # noqa: BLE001 – Quelle darf nie den Server killen
             with lock:
                 errors[name] = f"{type(e).__name__}: {e}"
@@ -1124,6 +1222,7 @@ if __name__ == "__main__":
         threading.Thread(target=worker, args=(name, fn), daemon=True).start()
     spotify_load()
     favorites_load()
+    threading.Thread(target=spotify_sync, daemon=True).start()
     if SPOTIFY_CONNECT:
         threading.Thread(target=watch_librespot, daemon=True).start()
     active = list(SOURCES) + (["spotify"] if SPOTIFY_CONNECT else [])

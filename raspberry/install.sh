@@ -94,10 +94,11 @@ if [ "$SPOTIFY" = 1 ]; then
   set_conf LIBRESPOT_INITIAL_VOLUME "100"
   # Lautheitsangleichung wie bei Caldera
   set_conf LIBRESPOT_ENABLE_VOLUME_NORMALISATION
-  # Spotify regelt auf etwa -14 LUFS, Caldera (mit Plex-Analyse) auf etwa -19 LUFS:
-  # Gemessen am Ausgang war Spotify danach noch rund 3 dB lauter, deshalb 8 dB absenken. Voraussetzung: Calderas
-  # Lautstaerke steht auf 100. Pruefen: "level_db" unter http://<Pi>:8090/status
-  set_conf LIBRESPOT_NORMALISATION_PREGAIN "${SPOTIFY_PREGAIN:--8.0}"
+  # Spotify gegenueber Caldera angleichen. Rechnerisch (Spotify -14 LUFS, Caldera mit
+  # Plex-Analyse etwa -19 LUFS) waeren es -5 dB; nach Gehoer war das zu leise, deshalb -2 dB.
+  # Voraussetzung: Calderas Lautstaerke steht auf 100. Anpassen: SPOTIFY_PREGAIN=-4 ./install.sh
+  # oder LIBRESPOT_NORMALISATION_PREGAIN in /etc/raspotify/conf (-10 bis 10), dann raspotify neu starten.
+  set_conf LIBRESPOT_NORMALISATION_PREGAIN "${SPOTIFY_PREGAIN:--2.0}"
   set_conf LIBRESPOT_ONEVENT "/usr/local/bin/np-librespot-event"
   # Anmeldung merken: nach einmaliger Auswahl von "$SPOTIFY_NAME" in der Spotify-App meldet sich
   # librespot bei jedem Start selbst am Konto an. Nur dann findet der Umschalter am Tablet das Geraet.

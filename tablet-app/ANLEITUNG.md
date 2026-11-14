@@ -1,6 +1,8 @@
 # Tablet-App „Now Playing“ für das Lenovo Yoga
 
-Die App zeigt die Seite des Now-Playing-Servers auf dem Raspberry im Vollbild an, fest im Querformat. Sie schaltet das Display aus, sobald keine Musik mehr läuft, und wieder ein, wenn Musik startet. Nach einem Neustart des Tablets startet sie von selbst.
+Die App zeigt die Seite des Now-Playing-Servers auf dem Raspberry im Vollbild an, fest im Querformat, und zeichnet die LED-Leiste selbst (das entlastet das alte Tablet deutlich). Sie schaltet das Display aus, sobald keine Musik mehr läuft, und wieder ein, wenn Musik startet. Sie hält sich selbst im Vordergrund, lädt die Seite neu, wenn sie nicht mehr reagiert, und startet nach einem Neustart des Tablets von selbst.
+
+Aussehen und Bedienknöpfe gehören zur Seite auf dem Pi (`raspberry/index.html`). Dafür muss die App nicht neu gebaut werden: Die Seite lädt sich auf dem Tablet selbst neu, sobald auf dem Pi eine neue Fassung liegt.
 
 Sie läuft ab Android 5, auf dem Yoga also in jedem Fall. Die Android-Version findest du unter *Einstellungen → Über das Tablet*.
 
@@ -47,12 +49,25 @@ Auf dem Yoga ist dafür USB-Debugging eingeschaltet (Entwickleroptionen).
 - Den Akku gelegentlich auf Aufblähen prüfen, etwa wenn sich das Gehäuse wölbt. Bei Dauerbetrieb am Netz kann das bei älteren Geräten vorkommen.
 - Im WLAN-Menü unter *Erweitert* die Einstellung „WLAN im Ruhezustand aktiviert lassen“ auf **Immer** stellen, falls es diese Option gibt.
 - Automatische Updates und Benachrichtigungen anderer Apps abschalten, damit nichts über die Anzeige springt.
+- Am gründlichsten: dem Tablet im Router den Internetzugang sperren (Fritz!Box: *Internet → Filter → Kindersicherung*, Zugangsprofil „Gesperrt“). Den Pi im Heimnetz erreicht es weiter, und mehr braucht die Anzeige nicht. Die Uhr des Tablets kann dann mit der Zeit etwas abweichen.
 
 ## Bedienung
 
-- **Lange drücken:** Einstellungen öffnen (Adresse, Display-Steuerung)
+- **Knöpfe auf der Anzeige** (Stopp/Play, vor, zurück, Song Radio, Album, Playlists, Umschalter Plex/Spotify): siehe die Übersicht im [README](../README.md#bedienung-am-tablet).
+- **Lange drücken:** Einstellungen der App öffnen (Adresse, Display-Steuerung)
 - **Zurück-Taste:** wird absichtlich ignoriert
-- **Display von Hand geweckt, ohne Musik:** geht nach 1 Minute von selbst wieder aus (nach 5 Minuten, wenn gerade eine andere App oder das Einstellungsfenster offen ist)
+- **Display von Hand geweckt, ohne Musik:** Es zeigt den zuletzt gespielten Titel mit Play-Knopf und geht nach 1 Minute von selbst wieder aus (nach 5 Minuten, wenn gerade das Einstellungsfenster offen ist).
+
+## Was die App selbst überwacht
+
+| Was | Verhalten |
+|---|---|
+| Andere App vorne | Nach 60 Sekunden holt sich die Anzeige in den Vordergrund zurück. Für Android-Einstellungen bleibt also jeweils eine Minute. |
+| Seite reagiert nicht | Die Seite meldet sich jede Sekunde bei der App. Bleibt das 30 Sekunden aus, obwohl der Pi erreichbar ist, lädt die App sie neu. |
+| Pi nicht erreichbar | Nach 2 Minuten geht das Display aus; sobald der Pi wieder antwortet und Musik läuft, geht es an. |
+| Android beendet die App | Ein Hintergrunddienst startet die Anzeige neu. |
+
+Die Meldungen dazu stehen im Android-Protokoll unter dem Stichwort `NowPlaying` (`adb logcat -s NowPlaying`).
 
 ## Updates
 

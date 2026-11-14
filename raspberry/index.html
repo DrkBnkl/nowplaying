@@ -169,10 +169,10 @@
 <script>
 // Bewusst ES5 + XMLHttpRequest, damit es auch im alten Android-WebView (Yoga: Android 6) laeuft.
 function el(id) { return document.getElementById(id); }
-function get(url, cb) {
+function get(url, cb, timeout) {
   var x = new XMLHttpRequest();
   x.open("GET", url + (url.indexOf("?") < 0 ? "?" : "&") + "t=" + new Date().getTime(), true);
-  x.timeout = 6000;
+  x.timeout = timeout || 6000;
   x.onload = function () { try { cb(JSON.parse(x.responseText)); } catch (e) {} };
   x.send();
 }
@@ -639,7 +639,7 @@ el("plbtn").onclick = function () {
     fillList(items || []);
     plist.className = "open";
     keepOpen();
-  });
+  }, 20000);   // die erste Spotify-Liste braucht einige Sekunden
 };
 
 poll();
