@@ -1,5 +1,6 @@
 # Zugangsdaten (Plex-Token) – nie einchecken
 raspberry/nowplaying.env
+raspberry/spotify.json
 **/.env
 
 # Lokale bzw. erzeugte Dateien

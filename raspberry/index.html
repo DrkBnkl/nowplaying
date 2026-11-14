@@ -36,6 +36,17 @@
   .title  { font-size: 4.6vh; line-height: 1.25; color: #D6D6D6; margin-top: 2vh; -webkit-line-clamp: 3; }
   .next   { font-size: 2.6vh; line-height: 1.3; margin-top: 3vh; -webkit-line-clamp: 1; opacity: .7; }
   .info .next:empty { display: none; }
+  /* Passt der Textblock nicht zwischen die Knoepfe oben und unten, wird stufenweise gekuerzt
+     (siehe fit): Titel zweizeilig, dann "Danach" weg, dann Titel einzeilig */
+  .info.t1 .title { -webkit-line-clamp: 2; }
+  .info.t2 .next { display: none; }
+  .info.t3 .title { -webkit-line-clamp: 1; }
+  /* Playlist, aus der der Titel kommt, mit kleinem Logo der Quelle */
+  .info .pls { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center;
+    font-size: 2.8vh; line-height: 1.3; margin-top: 1.4vh; white-space: nowrap; }
+  .pls i { -webkit-flex: none; flex: none; width: 2.8vh; height: 2.8vh; margin-right: 1.2vh; }
+  .pls i svg { display: block; width: 100%; height: 100%; }
+  .pls span { overflow: hidden; text-overflow: ellipsis; }
   .meta   { font-size: 3.2vh; line-height: 1.3; color: #9C9C9C; margin-top: 1.6vh; -webkit-line-clamp: 2; }
   .specspace { height: 12vh; margin-top: 3.5vh; -webkit-flex: none; flex: none; }
   #spec { position: absolute; left: 5vw; right: 5vw; bottom: 4.5vh; width: 90vw; height: 12vh; display: block;
@@ -49,24 +60,49 @@
     -webkit-transition: opacity .2s; transition: opacity .2s; -webkit-tap-highlight-color: transparent; }
   .ctl svg { position: absolute; left: 27%; top: 27%; width: 46%; height: 46%; fill: currentColor; }
   .ctl.busy { opacity: .35; }
-  #skip { right: 5vw; }
-  #stop { right: 5vw; margin-right: 11.5vh; }
-  #prev { right: 5vw; margin-right: 23vh; }
-  #similar { right: 5vw; margin-right: 34.5vh; }
-  body.canskip #skip, body.canprev #prev, body.canstop #stop, body.cansimilar #similar { display: block; }
-  /* Playlists: Knopf oben rechts klappt die zuletzt gespielten auf (nur Caldera) */
-  #plbtn { right: 5vw; top: 5vh; bottom: auto; }
+  /* untere Reihe: beginnt buendig mit dem Text (linke Kante der Infos); ausgeblendete Knoepfe
+     hinterlassen keine Luecke */
+  #ctls { position: absolute; left: calc(13vw + 74vh); bottom: 22vh; height: 9vh; white-space: nowrap;
+    -webkit-transform: translateZ(0); transform: translateZ(0); }
+  #ctls .ctl { position: relative; bottom: auto; float: left; margin-right: 2.5vh; }
+  #ctls #skip { margin-right: 0; }
+  body.canskip #skip, body.canprev #prev, body.canstop #stop, body.cansimilar #similar,
+  body.canalbum #albumplay { display: block; }
+  body.inalbum #albumplay { opacity: .3; }
+  /* Playlists: Knopf oben rechts klappt die zuletzt gespielten der laufenden Quelle auf */
+  /* obere Reihe (Umschalter, Playlists): rechtsbuendig, die rechte Kante schliesst mit dem
+     Vorwaerts-Knopf der unteren Reihe ab (fuenf Knoepfe zu 9vh mit 2.5vh Abstand = 55vh) */
+  #tops { position: absolute; left: calc(13vw + 74vh); width: 55vh; top: 5vh; height: 9vh; white-space: nowrap;
+    -webkit-transform: translateZ(0); transform: translateZ(0); }
+  #tops .ctl { position: relative; bottom: auto; float: right; margin-left: 2.5vh; }
   body.canlist #plbtn { display: block; }
-  #plist { display: none; position: absolute; right: 5vw; top: 16vh; width: 46vw; box-sizing: border-box;
-    padding: 1vh; border-radius: 1.6vh; background: rgba(22,23,24,.96); border: 1px solid rgba(255,255,255,.14);
+  /* Umschalter Plex <-> Spotify: laenglicher Knopf links neben dem Playlist-Knopf. Beide Logos
+     stehen fest nebeneinander (Plex links, Spotify rechts); farbig ist die Quelle, die gerade
+     laeuft, die andere ist grau. Antippen wechselt zur anderen. */
+  #swbtn { width: 17vh; border-radius: 4.5vh; }
+  body.canswitch #swbtn { display: block; }
+  #swbtn svg { top: 2.1vh; width: 4.8vh; height: 4.8vh; fill: rgba(255,255,255,.26); }
+  #swbtn .plex { left: 3vh; }
+  #swbtn .spotify { left: 9.2vh; }
+  #swbtn.to-spotify .plex { fill: #E5A00D; }
+  #swbtn.to-plex .spotify { fill: #1ED760; }
+  /* bis zu zehn Eintraege in zwei Spalten (links 1-5, rechts 6-10), ohne Blaettern */
+  #plist { display: none; position: absolute; left: 5vw; right: 5vw; top: 16vh; box-sizing: border-box;
+    padding: 1vh; border-radius: 1.6vh; background: rgba(46,47,49,.95); border: 1px solid rgba(255,255,255,.14);
+    -webkit-column-count: 2; column-count: 2; -webkit-column-gap: 2vh; column-gap: 2vh;
     -webkit-transform: translateZ(0); transform: translateZ(0); }
   body.canlist #plist.open { display: block; }
   .pl { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center;
-    padding: 1vh 1.4vh; border-radius: 1vh; font-size: 3.2vh; color: #E4E4E4; -webkit-tap-highlight-color: transparent; }
+    padding: .8vh 0 .8vh 1.4vh; border-radius: 1vh; font-size: 3.1vh; color: #E4E4E4; -webkit-tap-highlight-color: transparent;
+    -webkit-column-break-inside: avoid; break-inside: avoid; }
   .pl.busy { background: rgba(255,255,255,.14); }
-  .pl img { width: 8vh; height: 8vh; -webkit-flex: none; flex: none; border-radius: .8vh; background: #2a2a2a; }
-  .pl span { -webkit-flex: 1; flex: 1; min-width: 0; margin: 0 2vh; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .pl small { font-size: 2.6vh; color: #8F8F8F; }
+  .pl img { width: 7.4vh; height: 7.4vh; -webkit-flex: none; flex: none; border-radius: .8vh; background: #2a2a2a; }
+  .pl span { -webkit-flex: 1; flex: 1; min-width: 0; margin: 0 1.6vh; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .pl small { font-size: 2.5vh; color: #8F8F8F; }
+  /* Stern: Favorit setzen oder entfernen, ohne die Playlist zu starten */
+  .pl b { -webkit-flex: none; flex: none; width: 8.4vh; height: 7.4vh; position: relative; }
+  .pl b svg { position: absolute; left: 26%; top: 24%; width: 48%; height: 52%; fill: none; stroke: #7d7d7d; stroke-width: 1.8; }
+  .pl b.on svg { fill: #F2C94C; stroke: #F2C94C; }
   #plist p { margin: 2vh; font-size: 3vh; color: #9C9C9C; }
   /* Fortschritt: duenne Linie direkt ueber der Leiste, nur wenn die Quelle Spielzeit meldet */
   #prog { display: none; position: absolute; left: 5vw; width: 90vw; bottom: 17.6vh; height: .4vh;
@@ -90,20 +126,26 @@
 <div id="play" class="view">
   <div class="slide gone"><canvas class="bg"></canvas><div class="stage"><div class="top">
     <canvas class="cover"></canvas>
-    <div class="info"><div class="artist"></div><div class="title"></div><div class="meta"></div><div class="next"></div></div>
+    <div class="info"><div class="artist"></div><div class="title"></div><div class="meta"></div><div class="pls"><i></i><span></span></div><div class="next"></div></div>
   </div><div class="specspace"></div></div></div>
   <div class="slide gone"><canvas class="bg"></canvas><div class="stage"><div class="top">
     <canvas class="cover"></canvas>
-    <div class="info"><div class="artist"></div><div class="title"></div><div class="meta"></div><div class="next"></div></div>
+    <div class="info"><div class="artist"></div><div class="title"></div><div class="meta"></div><div class="pls"><i></i><span></span></div><div class="next"></div></div>
   </div><div class="specspace"></div></div></div>
   <canvas id="spec"></canvas>
-  <div id="similar" class="ctl"><svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></div>
   <div id="prog"><i></i></div>
-  <div id="plbtn" class="ctl"><svg viewBox="0 0 24 24"><path d="M3 6h12v2H3zM3 11h12v2H3zM3 16h8v2H3zM16 12v9l6-4.5z"/></svg></div>
+  <div id="ctls">
+    <div id="albumplay" class="ctl"><svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18zM12 9.5a2.5 2.5 0 1 1 0 5a2.5 2.5 0 0 1 0-5z"/></svg></div>
+    <div id="similar" class="ctl"><svg viewBox="0 0 24 24"><path d="M10 3l1.8 5.2 5.2 1.8-5.2 1.8L10 17l-1.8-5.2L3 10l5.2-1.8zM18 14l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z"/></svg></div>
+    <div id="prev" class="ctl"><svg viewBox="0 0 24 24"><path d="M19 5v14L8 12zM4.4 5H7v14H4.4z"/></svg></div>
+    <div id="stop" class="ctl"><svg class="stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg><svg class="play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+    <div id="skip" class="ctl"><svg viewBox="0 0 24 24"><path d="M5 5v14l11-7zM17 5h2.6v14H17z"/></svg></div>
+  </div>
+  <div id="tops">
+    <div id="plbtn" class="ctl"><svg viewBox="0 0 24 24"><path d="M3 6h12v2H3zM3 11h12v2H3zM3 16h8v2H3zM16 12v9l6-4.5z"/></svg></div>
+    <div id="swbtn" class="ctl"><svg class="spotify" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11"/><path d="M6.2 9.1c3.9-1.1 8.6-.7 12 1.3M6.9 12.6c3.2-.9 7-.5 9.8 1.2M7.6 15.8c2.5-.6 5.3-.3 7.5 1" fill="none" stroke="#111" stroke-width="1.7" stroke-linecap="round"/></svg><svg class="plex" viewBox="0 0 24 24"><path d="M5.5 2h6.2l6.8 10-6.8 10H5.5l6.8-10z"/></svg></div>
+  </div>
   <div id="plist"></div>
-  <div id="prev" class="ctl"><svg viewBox="0 0 24 24"><path d="M19 5v14L8 12zM4.4 5H7v14H4.4z"/></svg></div>
-  <div id="stop" class="ctl"><svg class="stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg><svg class="play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
-  <div id="skip" class="ctl"><svg viewBox="0 0 24 24"><path d="M5 5v14l11-7zM17 5h2.6v14H17z"/></svg></div>
 </div>
 
 <div id="off" class="view"></div>
@@ -344,7 +386,31 @@ function tidy(node, t, names) {
 // "Danach": naechster Titel der Warteschlange (nur Caldera meldet ihn)
 function nextText(d) {
   var n = d.next;
+  if (d.context === "album") return "";   // im Album sagt "Titel n von m" genug
   return n && n.title ? "Danach: " + (n.artist ? n.artist + " \u2013 " : "") + n.title : "";
+}
+var ICONS = {
+  caldera: '<svg viewBox="0 0 24 24"><path fill="#E5A00D" d="M5.5 2h6.2l6.8 10-6.8 10H5.5l6.8-10z"/></svg>',
+  spotify: '<svg viewBox="0 0 24 24"><circle fill="#1ED760" cx="12" cy="12" r="11"/><path d="M6.2 9.1c3.9-1.1 8.6-.7 12 1.3M6.9 12.6c3.2-.9 7-.5 9.8 1.2M7.6 15.8c2.5-.6 5.3-.3 7.5 1" fill="none" stroke="#111" stroke-width="1.7" stroke-linecap="round"/></svg>',
+  radio: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M10 3l1.8 5.2 5.2 1.8-5.2 1.8L10 17l-1.8-5.2L3 10l5.2-1.8zM18 14l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z"/></svg>',
+  album: '<svg viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18zM12 9.5a2.5 2.5 0 1 1 0 5a2.5 2.5 0 0 1 0-5z"/></svg>'
+};
+// Zeile unter dem Album: Playlist-Name (Logo der Quelle), "Song Radio: ..." (Funken) oder im
+// Album "Titel n von m" (Platte); nur wenn die Quelle etwas nennt. Liefert true bei Aenderung.
+function setPlaylist(slide, d) {
+  var kind = d.context === "radio" || d.context === "album" ? d.context : d.source;
+  var box = q(slide, "pls"), name = d.playlist || "", icon = ICONS[kind] || "", changed = false;
+  if ((box.style.display !== "none") !== !!name) { box.style.display = name ? "" : "none"; changed = true; }
+  if (box.lastChild.textContent !== name) { box.lastChild.textContent = name; changed = true; }
+  if (box.getAttribute("data-src") !== kind) { box.setAttribute("data-src", kind); box.firstChild.innerHTML = icon; }
+  return changed;
+}
+// Der Textblock steht mittig zwischen den Knoepfen oben rechts und denen ueber der Leiste.
+// Wird er hoeher als der Platz dazwischen (knapp die halbe Hoehe), rutscht er in die Knoepfe: kuerzen.
+function fit(slide) {
+  var info = q(slide, "info"), max = window.innerHeight * .49, steps = ["t1", "t2", "t3"], cls = "info";
+  info.className = cls;
+  for (var i = 0; i < steps.length && info.offsetHeight > max; i++) { cls += " " + steps[i]; info.className = cls; }
 }
 function showSlide(d, e) {
   var next = cur < 0 ? 0 : 1 - cur, s = slides[next], p = e ? e.pal : DEFAULT_PAL;
@@ -359,6 +425,8 @@ function showSlide(d, e) {
            ["meta", [d.album, d.year].filter(function (v) { return v; }).join(" · "), p.t3]];
   for (var i = 0; i < t.length; i++) { var x = q(s, t[i][0]); x.textContent = tidy(x, t[i][1], t[i][0] === "artist"); x.style.color = t[i][2]; }
   var nx = q(s, "next"); nx.textContent = nextText(d); nx.style.color = p.t3;
+  setPlaylist(s, d); q(s, "pls").style.color = p.t3;
+  fit(s);
   el("prog").firstChild.style.backgroundColor = p.t2 || "";
   pal = p;   // Leiste nimmt die Farben des neuen Covers
   syncAppBar();
@@ -384,8 +452,11 @@ function render(d) {
   if (view === "play" && !d.playing) cls += " paused";
   if (view === "play" && d.skip) cls += " canskip";
   if (view === "play" && d.prev) cls += " canprev";
-  // Playlist starten ersetzt, was Caldera spielt; nicht anbieten, solange eine andere Quelle laeuft
-  if (view === "play" && d.playlists && (d.source === "caldera" || !d.playing)) cls += " canlist";
+  if (view === "play" && d.albumplay) cls += " canalbum";
+  inAlbum = view === "play" && d.context === "album";
+  if (inAlbum) cls += " inalbum";   // Album laeuft schon: Album-Knopf ausgegraut
+  // Playlists der Quelle, die gerade laeuft (Plex oder Spotify); der Server entscheidet, ob es geht
+  if (view === "play" && d.playlists) cls += " canlist";
   if (view === "play" && d.duration > 0) {
     cls += " hasprog";
     // in Schritten von 0,5 %: die Seite wird nur neu gezeichnet, wenn sich die Linie sichtbar aendert
@@ -396,6 +467,12 @@ function render(d) {
   paused = view === "play" && !d.playing;
   if (view === "play" && (paused ? d.play : d.stop)) cls += " canstop";
   if (view === "play" && d.similar) cls += " cansimilar";
+  if (view === "play" && d["switch"]) {
+    cls += " canswitch";
+    swTarget = d["switch"] === "plex" ? "to-plex" : "to-spotify";   // Logo der Quelle, zu der es geht
+    if (el("swbtn").className.indexOf("busy") < 0 && el("swbtn").className !== "ctl " + swTarget)
+      el("swbtn").className = "ctl " + swTarget;
+  }
   if (APP) {
     // Tablet-App: sie holt die Daten und zeichnet die Leiste, hier bleibt die eigene aus
     appBar.on = view === "play" && !!d.spectrum; appBar.url = d.spectrum || "";
@@ -429,20 +506,26 @@ function render(d) {
   }
   // "Danach" kann sich aendern, ohne dass der Titel wechselt (z. B. nach "mehr davon")
   if (shownKey === key && cur >= 0) {
-    var nx = q(slides[cur], "next"), txt = nextText(d);
-    if (nx.textContent !== txt) nx.textContent = txt;
+    var nx = q(slides[cur], "next"), txt = nextText(d), changed = nx.textContent !== txt;
+    if (changed) nx.textContent = txt;
+    // Spotify meldet die Playlist erst kurz nach dem Titelwechsel
+    if (setPlaylist(slides[cur], d) || changed) fit(slides[cur]);
   }
   // naechsten Titel (Plexamp) schon vorladen, damit der Wechsel ohne Wartezeit ueberblendet
   if (d.next && d.next.art) loadArt(d.next.art, null);
 }
-function poll() { get("api/now", render); }
+function poll() {
+  // Lebenszeichen an die Tablet-App: bleibt es aus, laedt sie die Seite neu
+  if (window.NowPlayingApp && window.NowPlayingApp.alive) window.NowPlayingApp.alive();
+  get("api/now", render);
+}
 
 /* Mehr davon, Stopp und naechster Titel: der Server reicht den Befehl an die spielende Quelle weiter */
-var paused = false;
+var paused = false, swTarget = "to-spotify", inAlbum = false;
 function control(id) {
   var btn = el(id), busy = false;
   btn.onclick = function () {
-    if (busy) return;
+    if (busy || (id === "albumplay" && inAlbum)) return;
     busy = true; btn.className = "ctl busy";
     var x = new XMLHttpRequest();
     x.open("POST", "api/" + (id === "stop" && paused ? "play" : id), true);
@@ -459,11 +542,15 @@ function control(id) {
     x.send();
   };
 }
-control("skip"); control("prev"); control("stop"); control("similar");
+control("skip"); control("prev"); control("stop"); control("similar"); control("albumplay");
 
 /* Playlists: Liste holen und aufklappen; Antippen startet die Playlist in Caldera */
 var plist = el("plist"), plTimer = null;
+var STAR = '<svg viewBox="0 0 24 24"><path d="M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6-5.4-3-5.4 3 1.1-6-4.5-4.2 6.1-.8z"/></svg>';
 function closeList() { plist.className = ""; if (plTimer) { clearTimeout(plTimer); plTimer = null; } }
+// ohne Bedienung schliesst sich die Liste nach 10 s; Beruehren und Markieren halten sie offen
+function keepOpen() { if (plTimer) clearTimeout(plTimer); plTimer = setTimeout(closeList, 10000); }
+plist.ontouchstart = keepOpen;
 function post(url, done) {
   var x = new XMLHttpRequest();
   x.open("POST", url, true);
@@ -477,25 +564,43 @@ function fillList(items) {
   if (!items.length) { var p = document.createElement("p"); p.textContent = "Keine Playlists gefunden"; plist.appendChild(p); return; }
   for (var i = 0; i < items.length; i++) (function (it) {
     var row = document.createElement("div"), img = document.createElement("img"),
-        name = document.createElement("span"), cnt = document.createElement("small");
+        name = document.createElement("span"), cnt = document.createElement("small"),
+        star = document.createElement("b");
     row.className = "pl";
     if (it.art) img.src = "art/" + it.art;
-    name.textContent = it.title; cnt.textContent = it.count;
-    row.appendChild(img); row.appendChild(name); row.appendChild(cnt);
+    name.textContent = it.title; cnt.textContent = it.count > 0 ? it.count : "";
+    star.innerHTML = STAR; star.className = it.fav ? "on" : "";
+    row.appendChild(img); row.appendChild(name); row.appendChild(cnt); row.appendChild(star);
     row.onclick = function () {
       if (row.className !== "pl") return;
       row.className = "pl busy";
       post("api/playlist?id=" + encodeURIComponent(it.id), function () { closeList(); poll(); });
     };
+    star.onclick = function (ev) {
+      ev.stopPropagation();   // nur markieren, nicht starten
+      var on = star.className !== "on";
+      star.className = on ? "on" : "";
+      keepOpen();
+      post("api/favorite?id=" + encodeURIComponent(it.id) + "&on=" + (on ? 1 : 0), function (ok) {
+        if (!ok) star.className = on ? "" : "on";   // nicht gespeichert: Anzeige zuruecknehmen
+      });
+    };
     plist.appendChild(row);
   })(items[i]);
 }
+/* Umschalter: haelt die laufende Quelle an und spielt die andere weiter */
+el("swbtn").onclick = function () {
+  var b = el("swbtn");
+  if (b.className.indexOf("busy") >= 0) return;
+  b.className = "ctl busy " + swTarget;
+  post("api/switch", function () { b.className = "ctl " + swTarget; poll(); });
+};
 el("plbtn").onclick = function () {
   if (plist.className === "open") { closeList(); return; }
   get("api/playlists", function (items) {
     fillList(items || []);
     plist.className = "open";
-    plTimer = setTimeout(closeList, 10000);   // ohne Auswahl von selbst wieder schliessen
+    keepOpen();
   });
 };
 

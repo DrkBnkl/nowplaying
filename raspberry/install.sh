@@ -99,6 +99,10 @@ if [ "$SPOTIFY" = 1 ]; then
   # Lautstaerke steht auf 100. Pruefen: "level_db" unter http://<Pi>:8090/status
   set_conf LIBRESPOT_NORMALISATION_PREGAIN "${SPOTIFY_PREGAIN:--8.0}"
   set_conf LIBRESPOT_ONEVENT "/usr/local/bin/np-librespot-event"
+  # Anmeldung merken: nach einmaliger Auswahl von "$SPOTIFY_NAME" in der Spotify-App meldet sich
+  # librespot bei jedem Start selbst am Konto an. Nur dann findet der Umschalter am Tablet das Geraet.
+  sed -i '/^LIBRESPOT_DISABLE_CREDENTIAL_CACHE=/d' /etc/raspotify/conf
+  set_conf LIBRESPOT_SYSTEM_CACHE "/var/lib/raspotify"
   systemctl enable raspotify
   systemctl restart raspotify
 fi
@@ -108,6 +112,13 @@ for s in nowplaying-spectrum nowplaying; do
   systemctl enable "$s"
   systemctl restart "$s"
 done
+
+# --- Spotify-Anmeldung (von np-spotify-login erzeugt) ins Zustandsverzeichnis des Dienstes ---
+STATE=/var/lib/private/nowplaying
+if [ -f spotify.json ] && [ -d "$STATE" ]; then
+  install -m 600 -o "$(stat -c %u "$STATE")" -g "$(stat -c %g "$STATE")" spotify.json "$STATE/spotify.json"
+  systemctl restart nowplaying
+fi
 
 IP=$(hostname -I | awk '{print $1}')
 echo

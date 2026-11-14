@@ -18,6 +18,7 @@ Nur Python-Standardbibliothek. Das Tablet spricht nur einfaches HTTP mit
 diesem Server; alle Cover werden hier durchgereicht (umgeht alte
 Zertifikate auf Android 6).
 """
+import glob
 import hashlib
 import itertools
 import json
@@ -25,6 +26,7 @@ import os
 import ssl
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -101,7 +103,8 @@ def get_art(key):
 # ------------------------------------------------------------- Caldera
 meta_cache = {}   # Plex-key -> die von plex_info genutzten Felder des Plex-Eintrags
 META_FIELDS = ("title", "originalTitle", "grandparentTitle", "parentTitle", "parentYear", "year",
-               "parentThumb", "thumb", "grandparentThumb")
+               "parentThumb", "thumb", "grandparentThumb", "musicAnalysisVersion",
+               "parentRatingKey")
 
 
 def plex_info(m):
@@ -115,7 +118,10 @@ def plex_info(m):
     year = m.get("parentYear") or m.get("year") or ""
     return {"title": m.get("title", ""),
             "artist": m.get("originalTitle") or m.get("grandparentTitle", ""),
-            "album": m.get("parentTitle", ""), "year": str(year) if year else "", "art": art}
+            "album": m.get("parentTitle", ""), "year": str(year) if year else "", "art": art,
+            # nur fuer klanglich analysierte Titel kennt der Plex-Server aehnliche Titel
+            "analysed": bool(m.get("musicAnalysisVersion")),
+            "album_key": str(m.get("parentRatingKey") or "")}
 
 
 def plex_meta(key):
@@ -150,6 +156,20 @@ def prefetch_art(key):
 queue_cache = {"id": None, "next": None}   # (Warteschlange, Eintrag, Version) -> naechster Titel
 
 
+album_count = {}   # Album-Schluessel -> Anzahl Titel
+
+
+def album_tracks(key):
+    key = str(key)
+    if key not in album_count:
+        _, raw, _ = http(PLEX_URL + "/library/metadata/" + key, {"Accept": "application/json", "X-Plex-Token": PLEX_TOKEN})
+        m = (json.loads(raw).get("MediaContainer", {}).get("Metadata") or [{}])[0]
+        album_count[key] = m.get("leafCount") or 0
+        while len(album_count) > 200:
+            album_count.pop(next(iter(album_count)))
+    return album_count[key]
+
+
 def plex_next(tl):
     """Naechsten Titel aus Calderas Warteschlange auf dem Plex-Server holen (nur bei Titelwechsel)."""
     q, item = tl.get("containerKey") or "", tl.get("playQueueItemID") or ""
@@ -160,12 +180,23 @@ def plex_next(tl):
         return queue_cache["next"]
     _, raw, _ = http(PLEX_URL + q + "?" + urllib.parse.urlencode({"window": 2, "center": item}),
                      {"Accept": "application/json", "X-Plex-Token": PLEX_TOKEN})
-    items = json.loads(raw).get("MediaContainer", {}).get("Metadata") or []
+    mc = json.loads(raw).get("MediaContainer", {})
+    items = mc.get("Metadata") or []
     nxt = None
     for i, m in enumerate(items):
         if str(m.get("playQueueItemID")) == item and i + 1 < len(items):
             nxt = plex_info(items[i + 1])
     queue_cache["id"], queue_cache["next"] = ident, nxt
+    # Woraus die Warteschlange besteht: Playlist (Name) oder ein ganzes Album in seiner Reihenfolge
+    # (dann "Titel n von m"); sonst nichts
+    title = mc.get("playQueuePlaylistTitle") or ""
+    ctx = "playlist" if title else ""
+    cur = next((m for m in items if str(m.get("playQueueItemID")) == item), None)
+    total, off = mc.get("playQueueTotalCount") or 0, mc.get("playQueueSelectedItemOffset")
+    if not title and not mc.get("playQueueShuffled") and cur and cur.get("parentRatingKey") \
+            and off is not None and total and album_tracks(cur["parentRatingKey"]) == total:
+        ctx, title = "album", "Titel %d von %d" % (off + 1, total)
+    queue_cache["playlist"], queue_cache["context"] = title, ctx
     if nxt:
         prefetch_art(nxt["art"])
     return nxt
@@ -205,6 +236,7 @@ def caldera_timeline():
 
 SIMILAR_COUNT = int(os.environ.get("SIMILAR_COUNT", "10"))
 similar_state = {"seed": None}
+similar_added = {}   # Warteschlange -> {eingefuegter Titel: "Interpret – Titel" des Ausgangstitels}
 # X-Plex-Client-Identifier: ohne ihn lehnt der Server das Anlegen einer Warteschlange ab (400)
 PLEX_HEADERS = {"Accept": "application/json", "X-Plex-Token": PLEX_TOKEN,
                 "X-Plex-Client-Identifier": "nowplaying-display"}
@@ -244,26 +276,49 @@ def play_caldera():
     return True
 
 
-PLAYLIST_COUNT = 5
 playlist_cache = {"t": 0.0, "items": []}
 
 
 def playlists():
-    """Die zuletzt gespielten Musik-Playlists des Plex-Servers (fuer die Auswahl am Tablet)."""
+    """Musik-Playlists des Plex-Servers fuer die Auswahl am Tablet: Favoriten zuerst, dann die
+    zuletzt gespielten."""
     if time.time() - playlist_cache["t"] < 60:
         return playlist_cache["items"]
     _, raw, _ = http(PLEX_URL + "/playlists?playlistType=audio&sort=lastViewedAt:desc",
                      PLEX_HEADERS, timeout=10)
+    every = json.loads(raw).get("MediaContainer", {}).get("Metadata") or []
+    favs = list(favorites["caldera"])
+    by_id = {str(m.get("ratingKey")): m for m in every}
+    chosen = [by_id[f] for f in favs if f in by_id] + [m for m in every if str(m.get("ratingKey")) not in favs]
     items = []
-    for m in (json.loads(raw).get("MediaContainer", {}).get("Metadata") or [])[:PLAYLIST_COUNT]:
+    for m in chosen[:PLAYLIST_COUNT]:
         art, thumb = None, m.get("composite") or m.get("thumb")
         if thumb:
             q = urllib.parse.urlencode({"width": 300, "height": 300, "minSize": 1, "upscale": 1, "url": thumb})
             art = register_art(PLEX_URL + "/photo/:/transcode?" + q, {"X-Plex-Token": PLEX_TOKEN})
-        items.append({"id": str(m.get("ratingKey")), "title": m.get("title", ""),
-                      "count": m.get("leafCount") or 0, "art": art})
+        pid = str(m.get("ratingKey"))
+        items.append({"id": pid, "title": m.get("title", ""), "count": m.get("leafCount") or 0,
+                      "art": art, "fav": pid in favs})
     playlist_cache["t"], playlist_cache["items"] = time.time(), items
     return items
+
+
+def play_album_caldera():
+    """Das Album des laufenden Titels von Titel 1 an spielen (ersetzt die Warteschlange)."""
+    tl = caldera_timeline()
+    key = tl is not None and (tl.get("key") or "/library/metadata/" + (tl.get("ratingKey") or ""))
+    album = plex_meta(key).get("album_key") if key else ""
+    if not album:
+        return False
+    uri = "server://%s/com.plexapp.plugins.library/library/metadata/%s" % (plex_machine(), album)
+    q = urllib.parse.urlencode({"type": "audio", "uri": uri, "shuffle": 0, "continuous": 0})
+    _, raw, _ = http(PLEX_URL + "/playQueues?" + q, PLEX_HEADERS, timeout=10, method="POST")
+    mc = json.loads(raw).get("MediaContainer", {})
+    tracks = mc.get("Metadata") or []
+    if not mc.get("playQueueID") or not tracks:
+        return False
+    caldera_play_media("/playQueues/%s" % mc["playQueueID"], tracks[0]["key"])
+    return True
 
 
 def start_playlist(pid):
@@ -306,6 +361,12 @@ def similar_caldera():
          timeout=10, method="PUT")
     caldera_command("refreshPlayQueue", playQueueID=queue.rsplit("/", 1)[1])
     similar_state["seed"] = (queue, seed)
+    try:
+        m = plex_meta("/library/metadata/" + seed)
+        label = " \u2013 ".join(x for x in (m.get("artist"), m.get("title")) if x)
+    except Exception:  # noqa: BLE001
+        label = ""
+    similar_added.setdefault(queue, {}).update({i: label for i in ids})
     queue_cache["id"] = None  # Vorschau des naechsten Titels neu holen
     return True
 
@@ -328,12 +389,276 @@ def poll_caldera():
                 stop="playPause" in can, play="playPause" in can,
                 time=num(tl.get("time")), duration=num(tl.get("duration")),
                 similar=(tl.get("containerKey") or "").startswith("/playQueues/"))
+    item["similar"] = item["similar"] and item.pop("analysed", False)
+    item["albumplay"] = bool(item.get("album_key"))
     prefetch_art(item["art"])
     try:
         item["next"] = plex_next(tl)
+        known = item["next"] is not None or queue_cache.get("id")
+        item["playlist"] = queue_cache.get("playlist", "") if known else ""
+        item["context"] = queue_cache.get("context", "") if known else ""
+        # von "mehr davon" eingefuegte Titel stammen nicht aus der Playlist: statt des Namens
+        # "Song Radio" mit dem Titel zeigen, auf den sich die Vorschlaege beziehen
+        added = similar_added.get(tl.get("containerKey") or "", {})
+        if (tl.get("ratingKey") or "") in added:
+            label = added[tl.get("ratingKey")]
+            item["playlist"] = "Song Radio" + (": " + label if label else "")
+            item["context"] = "radio"
     except Exception:  # noqa: BLE001 – ohne Vorschau geht es auch
         item["next"] = None
     return item
+
+
+# ------------------------------------------- Spotify-Web-Schnittstelle
+# librespot laesst sich nicht lokal steuern. Umschalten zu Spotify, Skip und Stopp gehen
+# deshalb ueber die Web-Schnittstelle von Spotify (Premium noetig). Einrichtung einmalig mit
+# np-spotify-login: eigene App bei developer.spotify.com (SPOTIFY_CLIENT_ID) und Anmeldung;
+# das Ergebnis liegt als spotify.json im Zustandsverzeichnis des Dienstes.
+SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
+SPOTIFY_DEVICE = os.environ.get("SPOTIFY_DEVICE", "PlexAmpPi")
+STATE_DIR = os.environ.get("STATE_DIRECTORY", "").split(":")[0] or os.path.dirname(os.path.abspath(__file__))
+SPOTIFY_TOKEN_FILE = os.path.join(STATE_DIR, "spotify.json")
+
+# Playlist-Auswahl am Tablet: so viele Eintraege, Favoriten zuerst, dann die zuletzt gespielten
+PLAYLIST_COUNT = int(os.environ.get("PLAYLIST_COUNT", "10"))
+FAVORITES_FILE = os.path.join(STATE_DIR, "favorites.json")
+favorites = {"caldera": [], "spotify": []}   # Quelle -> Playlist-Kennungen, in der Reihenfolge des Markierens
+
+
+def favorites_load():
+    try:
+        with open(FAVORITES_FILE) as f:
+            data = json.load(f)
+        for k in favorites:
+            favorites[k] = [str(x) for x in data.get(k) or []]
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
+def set_favorite(source, pid, on):
+    """Playlist als Favorit markieren oder die Markierung entfernen; wird sofort gespeichert."""
+    with lock:
+        cur = [x for x in favorites[source] if x != pid]
+        if on:
+            cur.append(pid)
+        favorites[source] = cur
+        tmp = FAVORITES_FILE + ".neu"
+        with open(tmp, "w") as f:
+            json.dump(favorites, f)
+        os.replace(tmp, FAVORITES_FILE)
+    playlist_cache["t"] = spotify_pl_cache["t"] = 0.0
+spotify_auth = {"refresh": None, "access": None, "expires": 0.0}
+spotify_lock = threading.Lock()
+
+
+def spotify_load():
+    try:
+        with open(SPOTIFY_TOKEN_FILE) as f:
+            spotify_auth["refresh"] = json.load(f).get("refresh_token") or None
+    except (OSError, ValueError):
+        spotify_auth["refresh"] = None
+
+
+def spotify_ready():
+    return bool(SPOTIFY_CLIENT_ID and spotify_auth["refresh"])
+
+
+def spotify_access():
+    """Gueltiges Zugriffstoken; wird mit dem gespeicherten Refresh-Token erneuert."""
+    with spotify_lock:
+        if spotify_auth["access"] and time.time() < spotify_auth["expires"] - 60:
+            return spotify_auth["access"]
+        data = urllib.parse.urlencode({"grant_type": "refresh_token", "client_id": SPOTIFY_CLIENT_ID,
+                                       "refresh_token": spotify_auth["refresh"]}).encode()
+        _, raw, _ = http("https://accounts.spotify.com/api/token",
+                         {"Content-Type": "application/x-www-form-urlencoded"}, data=data, timeout=10)
+        tok = json.loads(raw)
+        spotify_auth["access"] = tok["access_token"]
+        spotify_auth["expires"] = time.time() + float(tok.get("expires_in", 3600))
+        new = tok.get("refresh_token")
+        if new and new != spotify_auth["refresh"]:  # Spotify kann das Refresh-Token austauschen
+            spotify_auth["refresh"] = new
+            tmp = SPOTIFY_TOKEN_FILE + ".neu"
+            with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+                json.dump({"refresh_token": new}, f)
+            os.replace(tmp, SPOTIFY_TOKEN_FILE)
+        return spotify_auth["access"]
+
+
+def spotify_api(method, path, body=None):
+    headers = {"Authorization": "Bearer " + spotify_access()}
+    data = None
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(body).encode()
+    elif method in ("PUT", "POST"):
+        data = b""
+    _, raw, _ = http("https://api.spotify.com/v1" + path, headers, data=data, timeout=10, method=method)
+    try:  # die Player-Befehle antworten bei Erfolg teils leer, teils mit Text statt JSON
+        return json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
+
+
+def spotify_device():
+    """Das Spotify-Connect-Geraet auf diesem Pi im Spotify-Konto (id, is_active ...), None wenn es dort fehlt."""
+    for d in spotify_api("GET", "/me/player/devices").get("devices") or []:
+        if (d.get("name") or "").lower() == SPOTIFY_DEVICE.lower():
+            return d
+    return None
+
+
+def spotify_play():
+    """Spotify auf diesem Pi (weiter)spielen. Ist der Pi noch nicht das aktive Geraet des Kontos,
+    wird die Wiedergabe hierher geholt; ein ausdrueckliches "play" startet sie in jedem Fall
+    (das Holen allein startet nicht, wenn der Pi schon das aktive Geraet ist)."""
+    dev = spotify_device()
+    if not dev:
+        return False
+    if not dev.get("is_active"):
+        spotify_api("PUT", "/me/player", {"device_ids": [dev["id"]], "play": True})
+        time.sleep(1)
+    try:
+        spotify_api("PUT", "/me/player/play?device_id=" + urllib.parse.quote(dev["id"]))
+    except urllib.error.HTTPError as e:
+        if e.code != 403:  # 403 = spielt bereits
+            raise
+    return True
+
+
+def play_album_spotify():
+    """Das Album des laufenden Spotify-Titels von Titel 1 an spielen."""
+    dev = spotify_device()
+    album = ((spotify_api("GET", "/me/player").get("item") or {}).get("album") or {}).get("uri")
+    if not dev or not album:
+        return False
+    spotify_api("PUT", "/me/player/play?device_id=" + urllib.parse.quote(dev["id"]),
+                {"context_uri": album, "offset": {"position": 0}})
+    return True
+
+
+def spotify_command(method, name):
+    dev = spotify_device()
+    spotify_api(method, "/me/player/%s%s" % (name, "?device_id=" + urllib.parse.quote(dev["id"]) if dev else ""))
+
+
+spotify_pl_cache = {"t": 0.0, "items": []}
+spotify_pl_info = {}   # uri -> Name, Bild, Anzahl (aendert sich selten, spart Abfragen)
+
+
+def spotify_playlists():
+    """Spotify-Playlists fuer die Auswahl am Tablet: Favoriten zuerst, dann die zuletzt gehoerten
+    (aus dem Hoerverlauf des Kontos), aufgefuellt mit den eigenen Playlists. Playlists, deren
+    Angaben Spotify nicht herausgibt, werden ausgelassen."""
+    if time.time() - spotify_pl_cache["t"] < 60:
+        return spotify_pl_cache["items"]
+    favs = list(favorites["spotify"])
+    uris = list(favs)
+
+    def add(ctx):
+        if ctx and ctx.get("type") == "playlist" and ctx.get("uri") and ctx["uri"] not in uris:
+            uris.append(ctx["uri"])
+
+    def info(uri, pl):
+        img = (pl.get("images") or [{}])[0].get("url")
+        spotify_pl_info[uri] = {"title": pl.get("name") or "", "img": img,
+                                "count": ((pl.get("tracks") or pl.get("items") or {}).get("total")) or 0}
+    try:
+        add(spotify_api("GET", "/me/player").get("context"))
+    except Exception:  # noqa: BLE001 – nichts aktiv
+        pass
+    try:
+        for it in spotify_api("GET", "/me/player/recently-played?limit=50").get("items") or []:
+            add(it.get("context"))
+    except Exception:  # noqa: BLE001 – Hoerverlauf nicht freigegeben
+        pass
+    try:
+        for pl in spotify_api("GET", "/me/playlists?limit=30").get("items") or []:
+            if pl and pl.get("uri"):
+                info(pl["uri"], pl)
+                if pl["uri"] not in uris:
+                    uris.append(pl["uri"])
+    except Exception:  # noqa: BLE001
+        pass
+    items = []
+    for uri in uris:
+        if len(items) >= PLAYLIST_COUNT:
+            break
+        if uri not in spotify_pl_info:
+            try:
+                info(uri, spotify_api("GET", "/playlists/" + uri.rsplit(":", 1)[1]))
+            except Exception:  # noqa: BLE001 – z. B. von Spotify erstellte Playlists
+                continue
+        i = spotify_pl_info[uri]
+        if i["title"]:
+            items.append({"id": uri, "title": i["title"], "count": i["count"],
+                          "art": register_art(i["img"]) if i["img"] else None, "fav": uri in favs})
+    spotify_pl_cache["t"], spotify_pl_cache["items"] = time.time(), items
+    return items
+
+
+def start_spotify_playlist(uri):
+    """Spotify-Playlist auf diesem Pi starten. Nur Playlists aus der Auswahlliste."""
+    if uri not in [p["id"] for p in spotify_playlists()]:
+        return False
+    dev = spotify_device()
+    if not dev:
+        return False
+    spotify_api("PUT", "/me/player/play?device_id=" + urllib.parse.quote(dev["id"]), {"context_uri": uri})
+    spotify_pl_cache["t"] = 0.0
+    return True
+
+
+def playlist_source():
+    """Wessen Playlists das Tablet gerade anbietet: "spotify", "caldera" oder None.
+    Eine Playlist zu starten ersetzt, was die Quelle spielt; deshalb nie die einer anderen
+    Quelle anbieten, solange etwas laeuft."""
+    c = shown()
+    if c.get("source") == "spotify":
+        return "spotify" if spotify_ready() else None
+    if "caldera" in SOURCES and (c.get("source") in ("caldera", "idle") or not c.get("playing")):
+        return "caldera"
+    return None
+
+
+def wait_card_free(timeout=10.0):
+    """Warten, bis kein Programm mehr die Soundkarte offen hat. Caldera gibt sie erst 5 s nach
+    der Pause frei, librespot kurz nach der Pause. Startet der andere Player vorher, bekommt er
+    "Geraet belegt": Caldera bleibt dann stumm, librespot beendet sich."""
+    end = time.time() + timeout
+    while time.time() < end:
+        busy = False
+        for f in glob.glob("/proc/asound/card*/pcm*p/sub*/status"):
+            try:
+                with open(f) as fh:
+                    busy = busy or fh.read().strip() != "closed"
+            except OSError:
+                pass
+        if not busy:
+            return True
+        time.sleep(0.25)
+    return False
+
+
+def switch_source():
+    """Umschalter Plex <-> Spotify: die laufende Quelle anhalten, die andere (weiter)spielen."""
+    if shown().get("source") == "spotify":
+        if "caldera" not in SOURCES:
+            return False
+        try:
+            spotify_command("PUT", "pause")
+        except Exception:  # noqa: BLE001 – spielt schon nicht mehr
+            pass
+        wait_card_free()
+        return play_caldera()
+    if not spotify_ready() or not spotify_device():
+        return False
+    if "caldera" in SOURCES:
+        tl = caldera_timeline()
+        if tl is not None and tl.get("state") != "paused":
+            caldera_command("pause")
+    wait_card_free()
+    return spotify_play()
 
 
 # ------------------------------------------- Spotify Connect (librespot)
@@ -407,6 +732,46 @@ def librespot_event(ev):
             if state.get("spotify") is item:
                 item["art"] = key
         prefetch_art(key)
+    if item and kind in ("track_changed", "playing") and spotify_ready():
+        threading.Thread(target=spotify_enrich, args=(item,), daemon=True).start()
+
+
+def spotify_enrich(item):
+    """Ueber die Web-Schnittstelle ergaenzen, was librespot nicht meldet: den Namen der Playlist
+    und, falls noch leer (Server neu gestartet, Wiedergabe fortgesetzt), Titel, Interpret, Cover."""
+    time.sleep(1.5)  # Spotify braucht einen Moment, bis der neue Stand abrufbar ist
+    try:
+        p = spotify_api("GET", "/me/player")
+        ctx, name, kind = p.get("context") or {}, "", ""
+        tr = p.get("item") or {}
+        if ctx.get("type") == "album" and tr.get("track_number") and (tr.get("album") or {}).get("total_tracks"):
+            kind, name = "album", "Titel %d von %d" % (tr["track_number"], tr["album"]["total_tracks"])
+        if ctx.get("type") == "playlist" and ctx.get("uri"):
+            kind = "playlist"
+            uri = ctx["uri"]
+            if uri not in spotify_pl_info:
+                pl = spotify_api("GET", "/playlists/" + uri.rsplit(":", 1)[1])
+                spotify_pl_info[uri] = {"title": pl.get("name") or "", "count": 0,
+                                        "img": (pl.get("images") or [{}])[0].get("url")}
+            name = spotify_pl_info[uri]["title"]
+        t = p.get("item") or {}
+        art = None
+        img = ((t.get("album") or {}).get("images") or t.get("images") or [{}])[0].get("url")
+        if img:
+            art = register_art(img)
+        with lock:
+            if state.get("spotify") is not item:
+                return
+            item["playlist"], item["context"] = name, kind if name else ""
+            if not item.get("title") and t.get("name"):
+                item["title"] = t["name"]
+                item["artist"] = ", ".join(a.get("name", "") for a in t.get("artists") or [])
+                item["album"] = (t.get("album") or {}).get("name", "")
+                item["art"] = item.get("art") or art
+        if art:
+            prefetch_art(art)
+    except Exception:  # noqa: BLE001 – ohne Zusatzangaben geht es auch
+        pass
 
 
 # ---------------------------------------------------------------- WiiM
@@ -491,9 +856,11 @@ def current():
             last_shown["item"], last_shown["t"] = i, now
             return i
     # Pausiert und fortsetzbar: bleibt PAUSE_DELAY stehen, das Tablet zeigt den Play-Knopf
-    paused = [i for i in items if i.get("play") and now - i["since"] < PAUSE_DELAY]
+    paused = [i for i in items if (i.get("play") or (i["source"] == "spotify" and spotify_ready()))
+              and now - i["since"] < PAUSE_DELAY]
     if paused:
-        return dict(max(paused, key=lambda i: i["since"]), skip=False, prev=False, stop=False, similar=False)
+        return dict(max(paused, key=lambda i: i["since"]), skip=False, prev=False, stop=False,
+                    similar=False, albumplay=False)
     last = last_shown["item"]
     if last and now - last_shown["t"] < OFF_DELAY:
         return dict(last, playing=False)
@@ -506,20 +873,28 @@ def shown():
     letzten Titel mit Play-Knopf, und die Wiedergabe laesst sich dort fortsetzen."""
     c = current()
     last = last_shown["item"]
-    if c["source"] != "idle" or not last:
-        return c
-    return dict(last, playing=False, idle=True, skip=False, prev=False, stop=False, similar=False)
+    if c["source"] == "idle" and last:
+        c = dict(last, playing=False, idle=True, skip=False, prev=False, stop=False, similar=False,
+                 albumplay=False)
+    if c["source"] == "spotify" and spotify_ready():  # ueber die Web-Schnittstelle steuerbar
+        live = bool(c.get("playing"))
+        c = dict(c, play=True, stop=live, skip=live, prev=live, albumplay=live)
+    return c
 
 
 # Bedienung vom Tablet: nur Quellen, die sich steuern lassen. Spotify Connect auf dem Pi
-# (librespot) hat keine lokale Steuerung und fehlt deshalb.
+# (librespot) hat keine lokale Steuerung; es geht nur mit eingerichteter Web-Schnittstelle.
 # "stop" haelt die Wiedergabe an (Pause), damit "play" an derselben Stelle weiterspielen kann.
 CONTROL = {
-    "skip": {"caldera": lambda: caldera_command("skipNext"), "wiim": lambda: wiim_command("next")},
-    "prev": {"caldera": lambda: caldera_command("skipPrevious"), "wiim": lambda: wiim_command("prev")},
-    "stop": {"caldera": lambda: caldera_command("pause"), "wiim": lambda: wiim_command("pause")},
-    "play": {"caldera": play_caldera, "wiim": lambda: wiim_command("resume")},
+    "skip": {"caldera": lambda: caldera_command("skipNext"), "wiim": lambda: wiim_command("next"),
+             "spotify": lambda: spotify_command("POST", "next")},
+    "prev": {"caldera": lambda: caldera_command("skipPrevious"), "wiim": lambda: wiim_command("prev"),
+             "spotify": lambda: spotify_command("POST", "previous")},
+    "stop": {"caldera": lambda: caldera_command("pause"), "wiim": lambda: wiim_command("pause"),
+             "spotify": lambda: spotify_command("PUT", "pause")},
+    "play": {"caldera": play_caldera, "wiim": lambda: wiim_command("resume"), "spotify": spotify_play},
     "similar": {"caldera": similar_caldera},
+    "albumplay": {"caldera": play_album_caldera, "spotify": play_album_spotify},
 }
 
 
@@ -570,6 +945,7 @@ def setup_page():
 <style>body{{font-family:sans-serif;max-width:700px;margin:2em auto;padding:0 1em}}
 td{{padding:4px 8px;vertical-align:top}}</style></head><body>
 <h1>Now Playing – Status</h1><table>{rows}</table>
+<p>Spotify-Steuerung (Umschalter, Skip, Stopp): {"eingerichtet" if spotify_ready() else "nicht eingerichtet"}</p>
 <p>Einstellungen: <code>/etc/default/nowplaying</code> auf dem Pi, danach
 <code>sudo systemctl restart nowplaying</code>.</p>
 <p><a href="/">→ Anzeige</a></p></body></html>""".encode()
@@ -605,10 +981,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, INDEX, "text/html; charset=utf-8")
         if path == "/api/now":
             c = dict(shown())
-            for k in ("since", "seen", "push", "track", "pid"):
+            for k in ("since", "seen", "push", "track", "pid", "album_key", "analysed"):
                 c.pop(k, None)
             c["display"] = "off" if c["source"] == "idle" or c.pop("idle", False) else "on"
-            c["playlists"] = "caldera" in SOURCES
+            c["playlists"] = playlist_source() is not None
+            # Umschalter: wohin er fuehrt ("plex" / "spotify"), leer wenn er nicht geht
+            c["switch"] = ""
+            if spotify_ready() and "caldera" in SOURCES and c["source"] in ("caldera", "spotify"):
+                c["switch"] = "plex" if c["source"] == "spotify" else "spotify"
             for k in CONTROL:
                 c[k] = bool(c.get(k))
             c["spectrum"] = self.spectrum_url()
@@ -624,8 +1004,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, art[0], art[1], "max-age=86400")
         if path == "/api/playlists":
             try:
-                items = playlists() if "caldera" in SOURCES else []
-            except Exception:  # noqa: BLE001 – Plex nicht erreichbar
+                src = playlist_source()
+                items = spotify_playlists() if src == "spotify" else playlists() if src == "caldera" else []
+            except Exception:  # noqa: BLE001 – Plex bzw. Spotify nicht erreichbar
                 items = []
             return self.send(200, json.dumps(items).encode(), "application/json")
         if path == "/setup":
@@ -648,13 +1029,38 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:  # noqa: BLE001 – Quelle nicht erreichbar
                 ok = False
             return self.send(204 if ok else 409, b"", "text/plain")
+        if path == "/api/switch":
+            if self.headers.get("X-NowPlaying") != "1":
+                return self.send(403, b"", "text/plain")
+            try:
+                ok = switch_source()
+            except Exception:  # noqa: BLE001 – Spotify oder Caldera nicht erreichbar
+                ok = False
+            return self.send(204 if ok else 409, b"", "text/plain")
+        if path == "/api/favorite":
+            if self.headers.get("X-NowPlaying") != "1":
+                return self.send(403, b"", "text/plain")
+            qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            pid, on = qs.get("id", [""])[0], qs.get("on", ["1"])[0] == "1"
+            try:
+                src = playlist_source()
+                known = spotify_playlists() if src == "spotify" else playlists() if src == "caldera" else []
+                ok = pid in [p["id"] for p in known]   # nur Playlists aus der gezeigten Liste
+                if ok:
+                    set_favorite(src, pid, on)
+            except Exception:  # noqa: BLE001
+                ok = False
+            return self.send(204 if ok else 409, b"", "text/plain")
         if path == "/api/playlist":
             if self.headers.get("X-NowPlaying") != "1":
                 return self.send(403, b"", "text/plain")
             pid = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("id", [""])[0]
             try:
-                ok = "caldera" in SOURCES and start_playlist(pid)
-            except Exception:  # noqa: BLE001 – Plex oder Caldera nicht erreichbar
+                if pid.startswith("spotify:playlist:"):
+                    ok = playlist_source() == "spotify" and start_spotify_playlist(pid)
+                else:
+                    ok = playlist_source() == "caldera" and start_playlist(pid)
+            except Exception:  # noqa: BLE001 – Plex, Caldera oder Spotify nicht erreichbar
                 ok = False
             return self.send(204 if ok else 409, b"", "text/plain")
         if path != "/api/librespot":
@@ -672,6 +1078,8 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     for name, fn in SOURCES.items():
         threading.Thread(target=worker, args=(name, fn), daemon=True).start()
+    spotify_load()
+    favorites_load()
     if SPOTIFY_CONNECT:
         threading.Thread(target=watch_librespot, daemon=True).start()
     active = list(SOURCES) + (["spotify"] if SPOTIFY_CONNECT else [])

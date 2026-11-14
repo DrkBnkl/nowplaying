@@ -57,6 +57,8 @@ public class MainActivity extends Activity {
     private static final long RELOCK_MS = 60 * 1000;        // Anzeige vorne
     private static final long RELOCK_AWAY_MS = 5 * 60 * 1000; // andere App vorne
     private static final long UNREACHABLE_OFF_MS = 2 * 60 * 1000; // Server weg: Display aus
+    private static final long FRONT_MS = 60 * 1000;      // andere App vorne: so lange dulden
+    private static final long PAGE_DEAD_MS = 30 * 1000;  // Seite meldet sich nicht: neu laden
 
     private WebView web;
     private SpectrumBar bar;
@@ -67,6 +69,11 @@ public class MainActivity extends Activity {
     private String display = "on";
     private long wokenSince = 0;     // seit wann das Display trotz "off" an ist
     private boolean resumed = false;
+    private long awaySince = 0;             // seit wann eine andere App vorne ist
+    private long lastLoad = 0;              // letzter Ladeversuch der Seite
+    private volatile long lastPing = 0;     // letztes Lebenszeichen der Seite (NowPlayingApp.alive)
+    /** Laeuft die Anzeige in diesem Prozess? Fuer KeepAliveService. */
+    static volatile boolean running = false;
     private AlertDialog settingsDialog;
 
     private DevicePolicyManager dpm;
@@ -135,6 +142,12 @@ public class MainActivity extends Activity {
             public void bar(boolean on, String url, String low, String mid, String high) {
                 bar.configure(on, url, low, mid, high);
             }
+
+            /** Lebenszeichen: die Seite ruft das bei jeder Abfrage (jede Sekunde) auf. */
+            @JavascriptInterface
+            public void alive() {
+                lastPing = android.os.SystemClock.elapsedRealtime();
+            }
         }, "NowPlayingApp");
 
         // Leiste liegt genau ueber dem Platz, den die Seite dafuer frei laesst
@@ -166,10 +179,14 @@ public class MainActivity extends Activity {
         if (baseUrl == null) showSettings();
         else loadPage();
         startPoller();
+        // haelt den Prozess am Leben und startet die Anzeige neu, falls Android sie beendet
+        running = true;
+        startService(new Intent(this, KeepAliveService.class));
     }
 
     // ---------------------------------------------------------------- Seite
     private void loadPage() {
+        lastLoad = android.os.SystemClock.elapsedRealtime();
         if (baseUrl != null) web.loadUrl(baseUrl + "/");
     }
 
@@ -235,13 +252,15 @@ public class MainActivity extends Activity {
                             if (failingSince == 0) failingSince = now;
                             else if (now - failingSince >= UNREACHABLE_OFF_MS) state = "off";
                         }
-                        if (state != null) {
-                            final String d = state;
-                            ui.post(new Runnable() {
-                                @Override
-                                public void run() { applyDisplay(d); }
-                            });
-                        }
+                        final String d = state;
+                        final boolean reachable = failingSince == 0;
+                        ui.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (d != null) applyDisplay(d);
+                                watchdog(reachable);
+                            }
+                        });
                     }
                     try { Thread.sleep(POLL_MS); } catch (InterruptedException e) { return; }
                 }
@@ -249,6 +268,36 @@ public class MainActivity extends Activity {
         }, "nowplaying-poller");
         t.setDaemon(true);
         t.start();
+    }
+
+    /**
+     * Haelt die Anzeige vorne und geladen (laeuft alle 3 Sekunden, nur bei eingeschaltetem Display):
+     * - Ist laenger als FRONT_MS eine andere App vorne, kommt die Anzeige zurueck nach vorn.
+     * - Meldet sich die Seite laenger als PAGE_DEAD_MS nicht, obwohl der Server erreichbar ist
+     *   (nie geladen, haengt, WebView abgestuerzt), wird sie neu geladen.
+     */
+    @SuppressWarnings("deprecation")
+    private void watchdog(boolean serverReachable) {
+        if (!alive || !pm.isScreenOn()) {
+            awaySince = 0;
+            return;
+        }
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (resumed) {
+            awaySince = 0;
+        } else if (awaySince == 0) {
+            awaySince = now;
+        } else if (now - awaySince >= FRONT_MS) {
+            awaySince = now;
+            android.util.Log.i("NowPlaying", "Andere App vorne: Anzeige zurueck nach vorn");
+            startActivity(new Intent(this, MainActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
+        }
+        if (serverReachable && baseUrl != null
+                && now - lastPing >= PAGE_DEAD_MS && now - lastLoad >= PAGE_DEAD_MS) {
+            android.util.Log.i("NowPlaying", "Seite meldet sich nicht: neu laden");
+            loadPage();
+        }
     }
 
     private static String fetch(String url) throws Exception {
@@ -374,6 +423,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         alive = false;
+        running = false;
         bar.shutdown();
         if (cpuLock != null && cpuLock.isHeld()) cpuLock.release();
         if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();

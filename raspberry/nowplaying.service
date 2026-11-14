@@ -1,5 +1,5 @@
 [Unit]
-Description=Now Playing Anzeige-Server (Cover, Wetter, Tag/Nacht fuer das Tablet)
+Description=Now Playing Anzeige-Server (Titel, Cover und Bedienung fuer das Tablet)
 After=network-online.target
 Wants=network-online.target
 
@@ -9,6 +9,7 @@ EnvironmentFile=-/etc/default/nowplaying
 Environment=INDEX_FILE=/usr/local/share/nowplaying/index.html
 ExecStart=/usr/local/bin/np-server
 DynamicUser=yes
+StateDirectory=nowplaying
 Nice=5
 Restart=always
 RestartSec=3
