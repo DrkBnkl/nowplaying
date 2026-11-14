@@ -10,7 +10,8 @@ Quellen (Prioritaet: was spielt, gewinnt; sonst das zuletzt pausierte):
   wiim     alles, was direkt auf dem WiiM laeuft (Radio, AirPlay,
            Spotify mit dem WiiM als Lautsprecher).
 
-Laeuft keine Musik, meldet /api/now nach OFF_DELAY Sekunden "display":"off";
+Laeuft keine Musik, meldet /api/now nach OFF_DELAY Sekunden "display":"off"
+(bei pausiertem Caldera/WiiM erst nach PAUSE_DELAY, solange zeigt das Tablet "Play");
 die Tablet-App schaltet dann das Display aus und bei Musik wieder ein.
 
 Nur Python-Standardbibliothek. Das Tablet spricht nur einfaches HTTP mit
@@ -43,6 +44,9 @@ INTERVAL = {
 # Sekunden, die nach Pause oder Ende der Musik das Cover (abgedunkelt) stehen
 # bleibt, bevor das Display ausgeht. Ueberbrueckt auch kurze Luecken zwischen Titeln.
 OFF_DELAY = float(os.environ.get("OFF_DELAY", "10"))
+# Sekunden, die eine pausierte Quelle mit Play-Knopf stehen bleibt (z. B. nach dem
+# Stopp-Knopf am Tablet), bevor das Display ausgeht
+PAUSE_DELAY = float(os.environ.get("PAUSE_DELAY", "180"))
 # Spektrum-Dienst: "auto" = gleicher Rechner wie diese Seite, Port 8090
 SPECTRUM_URL = os.environ.get("SPECTRUM_URL", "auto")
 # Port des Spektrum-Dienstes fuer "auto" (muss zu PORT in /etc/default/nowplaying-spectrum passen)
@@ -236,7 +240,7 @@ def poll_caldera():
     can = (tl.get("controllable") or "").split(",")
     item = dict(plex_meta(key), source="caldera", device="Caldera",
                 playing=tl.get("state") != "paused",
-                skip="skipNext" in can, stop="stop" in can,
+                skip="skipNext" in can, stop="playPause" in can, play="playPause" in can,
                 similar=(tl.get("containerKey") or "").startswith("/playQueues/"))
     prefetch_art(item["art"])
     try:
@@ -352,6 +356,7 @@ def poll_wiim():
         "art": register_art(art, insecure=True) if art.startswith("http") else None,
         "skip": True,
         "stop": True,
+        "play": True,
     }
 
 
@@ -396,6 +401,10 @@ def current():
         if i["playing"]:
             last_shown["item"], last_shown["t"] = i, now
             return i
+    # Pausiert und fortsetzbar: bleibt PAUSE_DELAY stehen, das Tablet zeigt den Play-Knopf
+    paused = [i for i in items if i.get("play") and now - i["since"] < PAUSE_DELAY]
+    if paused:
+        return dict(max(paused, key=lambda i: i["since"]), skip=False, stop=False, similar=False)
     last = last_shown["item"]
     if last and now - last_shown["t"] < OFF_DELAY:
         return dict(last, playing=False)
@@ -404,15 +413,17 @@ def current():
 
 # Bedienung vom Tablet: nur Quellen, die sich steuern lassen. Spotify Connect auf dem Pi
 # (librespot) hat keine lokale Steuerung und fehlt deshalb.
+# "stop" haelt die Wiedergabe an (Pause), damit "play" an derselben Stelle weiterspielen kann.
 CONTROL = {
     "skip": {"caldera": lambda: caldera_command("skipNext"), "wiim": lambda: wiim_command("next")},
-    "stop": {"caldera": lambda: caldera_command("stop"), "wiim": lambda: wiim_command("stop")},
+    "stop": {"caldera": lambda: caldera_command("pause"), "wiim": lambda: wiim_command("pause")},
+    "play": {"caldera": lambda: caldera_command("play"), "wiim": lambda: wiim_command("resume")},
     "similar": {"caldera": similar_caldera},
 }
 
 
 def control(cmd):
-    """Befehl (skip, stop, similar) an die Quelle, die gerade angezeigt wird. False, wenn das nicht geht."""
+    """Befehl (skip, stop, play, similar) an die Quelle, die gerade angezeigt wird. False, wenn das nicht geht."""
     c = current()
     fn = CONTROL[cmd].get(c.get("source")) if c.get(cmd) else None
     if not fn:

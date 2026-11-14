@@ -16,6 +16,8 @@ SPOTIFY_CONNECT=yes
 # Sekunden, die nach Pause oder Ende der Musik das Cover noch stehen bleibt,
 # dann geht das Display aus (an, sobald wieder Musik laeuft)
 OFF_DELAY=10
+# Sekunden, die nach Pause/Stopp (Caldera, WiiM) das Cover mit Play-Knopf stehen bleibt
+PAUSE_DELAY=180
 # Spektrum-Dienst: auto = dieser Pi, Port 8090
 SPECTRUM_URL=auto
 # Port des Spektrum-Dienstes; nur aendern, wenn PORT in

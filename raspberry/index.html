@@ -51,6 +51,8 @@
   #stop { right: 5vw; margin-right: 11.5vh; }
   #similar { right: 5vw; margin-right: 23vh; }
   body.canskip #skip, body.canstop #stop, body.cansimilar #similar { display: block; }
+  #stop .play, body.paused #stop .stop { display: none; }   /* pausiert: Stopp wird zu Play */
+  body.paused #stop .play { display: block; }
   .ctl.done { color: #fff; background: rgba(255,255,255,.22); }   /* kurz hell: eingefuegt */
 
   /* ---------- Keine Musik: schwarz, das Display geht aus ---------- */
@@ -70,7 +72,7 @@
   </div><div class="specspace"></div></div></div>
   <canvas id="spec"></canvas>
   <div id="similar" class="ctl"><svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></div>
-  <div id="stop" class="ctl"><svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></div>
+  <div id="stop" class="ctl"><svg class="stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg><svg class="play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
   <div id="skip" class="ctl"><svg viewBox="0 0 24 24"><path d="M5 5v14l11-7zM17 5h2.6v14H17z"/></svg></div>
 </div>
 
@@ -298,7 +300,9 @@ function render(d) {
   var cls = view;
   if (view === "play" && !d.playing) cls += " paused";
   if (view === "play" && d.skip) cls += " canskip";
-  if (view === "play" && d.stop) cls += " canstop";
+  // pausiert (z. B. nach Stopp): derselbe Knopf setzt die Wiedergabe fort
+  paused = view === "play" && !d.playing;
+  if (view === "play" && (paused ? d.play : d.stop)) cls += " canstop";
   if (view === "play" && d.similar) cls += " cansimilar";
   if (APP) {
     // Tablet-App: sie holt die Daten und zeichnet die Leiste, hier bleibt die eigene aus
@@ -337,13 +341,14 @@ function render(d) {
 function poll() { get("api/now", render); }
 
 /* Mehr davon, Stopp und naechster Titel: der Server reicht den Befehl an die spielende Quelle weiter */
+var paused = false;
 function control(id) {
   var btn = el(id), busy = false;
   btn.onclick = function () {
     if (busy) return;
     busy = true; btn.className = "ctl busy";
     var x = new XMLHttpRequest();
-    x.open("POST", "api/" + id, true);
+    x.open("POST", "api/" + (id === "stop" && paused ? "play" : id), true);
     x.setRequestHeader("X-NowPlaying", "1");
     x.timeout = 6000;
     x.onloadend = function () {
