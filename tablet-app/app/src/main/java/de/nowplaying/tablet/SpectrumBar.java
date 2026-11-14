@@ -1,11 +1,14 @@
 package de.nowplaying.tablet;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
+import android.graphics.Rect;
 import android.os.SystemClock;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -27,6 +30,10 @@ import java.net.URL;
  * die Adresse des Spektrum-Dienstes und die drei Farben des Covers. Die Daten
  * holt die Leiste selbst (Server-Sent Events vom Pi). Aussehen und Bewegung
  * entsprechen der Leiste in index.html (40 Spalten, 10 Zeilen).
+ *
+ * Sparsam gezeichnet: das dunkle Raster und die voll leuchtende Leiste liegen
+ * als Bilder vor. Pro Bild wird nur der Streifen der geaenderten Spalten
+ * erneuert: Raster kopieren, je Spalte den leuchtenden Teil kopieren, Spitze.
  */
 class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
 
@@ -43,11 +50,19 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
     private volatile boolean alive = true;
     private volatile Thread drawThread;
 
+    // Nur vom Zeichen-Thread benutzt
+    private final int[] colX0 = new int[N], colX1 = new int[N], rowY0 = new int[M], rowY1 = new int[M];
+    private Bitmap gridBmp, litBmp;     // dunkles Raster / alle Zellen leuchtend
+    private int[] bmpColors;
+    private final Paint copy = new Paint(), fill = new Paint();
+    private final Rect dirty = new Rect(), part = new Rect();
+
     SpectrumBar(Context context) {
         super(context);
         setZOrderOnTop(true);
         getHolder().setFormat(PixelFormat.TRANSLUCENT);
         getHolder().addCallback(this);
+        copy.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC));  // ersetzen statt mischen
         Thread net = new Thread(new Runnable() {
             @Override
             public void run() { receive(); }
@@ -146,18 +161,19 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
     private void drawLoop() {
         float[] lv = new float[N], pk = new float[N];
         int[] lit = new int[N], peak = new int[N], shown = new int[N];
-        int[] drawn = null;
         boolean visible = false, first = true;
-        Paint paint = new Paint();
+        boolean full = true;   // beim naechsten Bild alles zeichnen
+        gridBmp = null;        // neue Flaeche: Bilder neu aufbauen
         while (alive && drawThread == Thread.currentThread()) {
             long t0 = SystemClock.elapsedRealtime();
             // Leiste nur zeigen, wenn der Pi gerade wirklich Signal liefert (Musik direkt am WiiM: keins)
             boolean show = wanted() && t0 - lastSignal <= SIGNAL_MS;
             if (!show) {
                 if (visible || first) {
-                    paint(null, null, null, paint);
+                    clear();
                     visible = false;
                     first = false;
+                    full = true;
                     for (int i = 0; i < N; i++) { lv[i] = 0; pk[i] = 0; shown[i] = -1; }
                 }
                 pause(200);
@@ -165,18 +181,23 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
             }
             float[] tg = t0 - lastData > 1000 ? new float[N] : target;
             int[] col = colors;
-            boolean dirty = !visible || col != drawn;
+            int from = N, to = -1;   // geaenderte Spalten [from, to]
             for (int i = 0; i < N; i++) {
                 lv[i] += (tg[i] - lv[i]) * (tg[i] > lv[i] ? .91f : .44f);
                 pk[i] = lv[i] >= pk[i] ? lv[i] : Math.max(lv[i], pk[i] - .024f);
                 lit[i] = Math.round(lv[i] * M);
                 peak[i] = Math.max(lit[i], Math.round(pk[i] * M)) - 1;
                 int key = lit[i] * 16 + peak[i];
-                if (shown[i] != key) { shown[i] = key; dirty = true; }
+                if (shown[i] != key) {
+                    shown[i] = key;
+                    if (i < from) from = i;
+                    to = i;
+                }
             }
-            if (dirty && paint(lit, peak, col, paint)) {
-                visible = true;
-                drawn = col;
+            if (full || col != bmpColors) { from = 0; to = N - 1; }
+            if (to >= 0) {
+                if (paint(lit, peak, col, from, to)) { visible = true; full = false; }
+                else full = true;   // nicht gezeichnet: beim naechsten Mal alles nachholen
             }
             pause(FRAME_MS - (SystemClock.elapsedRealtime() - t0));
         }
@@ -187,29 +208,78 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
         try { Thread.sleep(ms); } catch (InterruptedException ignored) { }
     }
 
-    /** Zeichnet die Leiste; mit lit == null wird die Flaeche nur geleert (durchsichtig). */
-    private boolean paint(int[] lit, int[] peak, int[] col, Paint paint) {
+    /** Flaeche leeren (durchsichtig). */
+    private void clear() {
         SurfaceHolder holder = getHolder();
         Canvas c = null;
         try {
             c = holder.lockCanvas();
-            if (c == null) return false;
-            c.drawColor(0, PorterDuff.Mode.CLEAR);
-            if (lit == null) return true;
-            float w = c.getWidth(), h = c.getHeight();
-            float gx = w * .006f, gy = h * .03f;
-            float bw = (w - gx * (N - 1)) / N, sh = (h - gy * (M - 1)) / M;
-            for (int b = 0; b < BANDS.length; b++) {
-                for (int r = BANDS[b][0]; r < BANDS[b][1]; r++) {
-                    float y = h - (r + 1) * sh - r * gy;
-                    for (int i = 0; i < N; i++) {
-                        float x = i * (bw + gx);
-                        if (peak[i] == r && peak[i] >= lit[i]) paint.setColor(col[2]);          // Spitze
-                        else if (r < lit[i]) paint.setColor(col[b]);                            // leuchtet
-                        else paint.setColor((col[b] & 0x00FFFFFF) | 0x14000000);                // dunkle Zelle (8 %)
-                        c.drawRect(x, y, x + bw, y + sh, paint);
-                    }
+            if (c != null) c.drawColor(0, PorterDuff.Mode.CLEAR);
+        } catch (Exception ignored) {
+        } finally {
+            if (c != null) {
+                try { holder.unlockCanvasAndPost(c); } catch (Exception ignored) { }
+            }
+        }
+    }
+
+    /** Raster und voll leuchtende Leiste als Bilder aufbauen. Liefert false, wenn nichts zu tun war. */
+    private boolean prepare(int w, int h, int[] col) {
+        if (gridBmp != null && gridBmp.getWidth() == w && gridBmp.getHeight() == h && col == bmpColors) return false;
+        float gx = w * .006f, gy = h * .03f;
+        float bw = (w - gx * (N - 1)) / N, sh = (h - gy * (M - 1)) / M;
+        for (int i = 0; i < N; i++) {
+            colX0[i] = Math.round(i * (bw + gx));
+            colX1[i] = Math.round(i * (bw + gx) + bw);
+        }
+        for (int r = 0; r < M; r++) {
+            float y = h - (r + 1) * sh - r * gy;
+            rowY0[r] = Math.round(y);
+            rowY1[r] = Math.round(y + sh);
+        }
+        if (gridBmp == null || gridBmp.getWidth() != w || gridBmp.getHeight() != h) {
+            gridBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            litBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        }
+        gridBmp.eraseColor(0);
+        litBmp.eraseColor(0);
+        Canvas g = new Canvas(gridBmp), l = new Canvas(litBmp);
+        for (int b = 0; b < BANDS.length; b++) {
+            for (int r = BANDS[b][0]; r < BANDS[b][1]; r++) {
+                for (int i = 0; i < N; i++) {
+                    fill.setColor((col[b] & 0x00FFFFFF) | 0x14000000);   // dunkle Zelle (8 %)
+                    g.drawRect(colX0[i], rowY0[r], colX1[i], rowY1[r], fill);
+                    fill.setColor(col[b]);
+                    l.drawRect(colX0[i], rowY0[r], colX1[i], rowY1[r], fill);
                 }
+            }
+        }
+        bmpColors = col;
+        return true;
+    }
+
+    /** Zeichnet die Spalten [from, to] neu (bei neuer Groesse oder neuen Farben alles). */
+    private boolean paint(int[] lit, int[] peak, int[] col, int from, int to) {
+        SurfaceHolder holder = getHolder();
+        Rect frame = holder.getSurfaceFrame();
+        int w = frame.width(), h = frame.height();
+        if (w <= 1 || h <= 1) return false;
+        Canvas c = null;
+        try {
+            if (prepare(w, h, col)) { from = 0; to = N - 1; }
+            dirty.set(colX0[from], 0, colX1[to], h);
+            c = holder.lockCanvas(dirty);   // das System darf den Bereich vergroessern
+            if (c == null || c.getWidth() != w || c.getHeight() != h) return false;
+            c.drawBitmap(gridBmp, dirty, dirty, copy);
+            fill.setColor(col[2]);
+            for (int i = 0; i < N; i++) {
+                if (colX1[i] <= dirty.left || colX0[i] >= dirty.right) continue;
+                if (lit[i] > 0) {
+                    part.set(colX0[i], rowY0[lit[i] - 1], colX1[i], h);
+                    c.drawBitmap(litBmp, part, part, null);
+                }
+                if (peak[i] >= lit[i] && peak[i] >= 0)
+                    c.drawRect(colX0[i], rowY0[peak[i]], colX1[i], rowY1[peak[i]], fill);
             }
             return true;
         } catch (Exception e) {
