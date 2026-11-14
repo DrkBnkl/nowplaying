@@ -18,6 +18,7 @@ diesem Server; alle Cover werden hier durchgereicht (umgeht alte
 Zertifikate auf Android 6).
 """
 import hashlib
+import itertools
 import json
 import os
 import ssl
@@ -166,10 +167,19 @@ def plex_next(tl):
     return nxt
 
 
+CALDERA_HEADERS = {"X-Plex-Client-Identifier": "nowplaying-display",
+                   "X-Plex-Device-Name": "Now Playing"}
+command_id = itertools.count(1)
+
+
+def skip_caldera():
+    http(CALDERA_URL + "/player/playback/skipNext?type=music&commandID=%d" % next(command_id),
+         CALDERA_HEADERS, timeout=4)
+
+
 def poll_caldera():
     _, raw, _ = http(CALDERA_URL + "/player/timeline/poll?wait=0&commandID=0",
-                     {"X-Plex-Client-Identifier": "nowplaying-display",
-                      "X-Plex-Device-Name": "Now Playing"}, timeout=4)
+                     CALDERA_HEADERS, timeout=4)
     tl = None
     for t in ET.fromstring(raw).iter("Timeline"):
         if t.get("type") == "music":
@@ -180,7 +190,8 @@ def poll_caldera():
     if not key:
         return None
     item = dict(plex_meta(key), source="caldera", device="Caldera",
-                playing=tl.get("state") != "paused")
+                playing=tl.get("state") != "paused",
+                skip="skipNext" in (tl.get("controllable") or "").split(","))
     prefetch_art(item["art"])
     try:
         item["next"] = plex_next(tl)
@@ -263,6 +274,10 @@ def librespot_event(ev):
 
 
 # ---------------------------------------------------------------- WiiM
+def skip_wiim():
+    http(f"https://{WIIM_HOST}/httpapi.asp?command=setPlayerCmd:next", insecure=True)
+
+
 def poll_wiim():
     base = f"https://{WIIM_HOST}/httpapi.asp?command="
     _, raw, _ = http(base + "getPlayerStatus", insecure=True)
@@ -288,6 +303,7 @@ def poll_wiim():
         "artist": clean(md.get("artist")),
         "album": clean(md.get("album")),
         "art": register_art(art, insecure=True) if art.startswith("http") else None,
+        "skip": True,
     }
 
 
@@ -336,6 +352,21 @@ def current():
     if last and now - last_shown["t"] < OFF_DELAY:
         return dict(last, playing=False)
     return {"source": "idle"}
+
+
+# Titel ueberspringen: nur Quellen, die sich steuern lassen. Spotify Connect auf dem Pi
+# (librespot) hat keine lokale Steuerung und fehlt deshalb.
+SKIP = {"caldera": skip_caldera, "wiim": skip_wiim}
+
+
+def skip_current():
+    """Naechster Titel bei der Quelle, die gerade angezeigt wird. False, wenn das nicht geht."""
+    c = current()
+    fn = SKIP.get(c.get("source")) if c.get("skip") else None
+    if not fn:
+        return False
+    fn()
+    return True
 
 
 # ------------------------------------------------------------ Webserver
@@ -413,6 +444,7 @@ class Handler(BaseHTTPRequestHandler):
             for k in ("since", "seen", "push", "track", "pid"):
                 c.pop(k, None)
             c["display"] = "off" if c["source"] == "idle" else "on"
+            c["skip"] = bool(c.get("skip"))
             c["spectrum"] = self.spectrum_url()
             return self.send(200, json.dumps(c).encode(), "application/json")
         if path.startswith("/art/"):
@@ -428,13 +460,27 @@ class Handler(BaseHTTPRequestHandler):
         self.send(404, b"not found", "text/plain")
 
     def do_POST(self):
-        if self.path.split("?")[0] != "/api/librespot":
+        path = self.path.split("?")[0]
+        try:
+            n = int(self.headers.get("Content-Length", 0) or 0)
+        except ValueError:
+            n = 0
+        body = self.rfile.read(n) if n > 0 else b""
+        if path == "/api/skip":
+            # Eigener Kopf: fremde Webseiten koennen ihn im Browser nicht ungefragt mitsenden
+            if self.headers.get("X-NowPlaying") != "1":
+                return self.send(403, b"", "text/plain")
+            try:
+                ok = skip_current()
+            except Exception:  # noqa: BLE001 – Quelle nicht erreichbar
+                ok = False
+            return self.send(204 if ok else 409, b"", "text/plain")
+        if path != "/api/librespot":
             return self.send(404, b"", "text/plain")
         if self.client_address[0] not in ("127.0.0.1", "::1"):
             return self.send(403, b"", "text/plain")
-        n = int(self.headers.get("Content-Length", 0) or 0)
         try:
-            librespot_event(json.loads(self.rfile.read(n) or b"{}"))
+            librespot_event(json.loads(body or b"{}"))
         except Exception as e:  # noqa: BLE001
             with lock:
                 errors["spotify"] = f"{type(e).__name__}: {e}"
