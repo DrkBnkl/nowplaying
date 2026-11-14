@@ -119,8 +119,8 @@ Nicht ins Repository gehören und sind per `.gitignore` ausgeschlossen: `raspber
 ## Eingerichteter Stand (14.11.2026)
 
 - **Raspberry** „PlexAmpPi“ (Pi 3B, HiFiBerry Digi, Debian 13, 192.168.178.68): Dienste `nowplaying`, `nowplaying-spectrum`, `raspotify` laufen.
-  Caldera: Abtastrate der Quelle, Lautstärke 100, Lautheitsangleichung und Übergänge an. Spektrum-Verzögerung `DELAY_MS=40`. Spotify: Absenkung −2 dB, Web-Schnittstelle eingerichtet, Raspotify merkt sich die Anmeldung.
-- **Tablet** Lenovo Yoga Tab 3 8" (YT3-850L, Android 6.0.1, 192.168.178.109): App 1.7, Adresse `http://192.168.178.68:8080`, Display-Steuerung aktiv, Bildschirmsperre „Keine“, nicht benötigte Apps entfernt bzw. deaktiviert, USB-Debugging an.
+  Caldera: Abtastrate der Quelle, Lautstärke 100, Lautheitsangleichung und Übergänge an. Spektrum-Verzögerung `DELAY_MS=0`. Spotify: Absenkung −2 dB, Web-Schnittstelle eingerichtet, Raspotify merkt sich die Anmeldung.
+- **Tablet** Lenovo Yoga Tab 3 8" (YT3-850L, Android 6.0.1, 192.168.178.109): App 1.8, Adresse `http://192.168.178.68:8080`, Display-Steuerung aktiv, Bildschirmsperre „Keine“, nicht benötigte Apps entfernt bzw. deaktiviert, USB-Debugging an.
 - **Getestet** mit echter Musik: Plexamp und Spotify über den Pi mit Cover, Songinfos und Leiste; Überblendung; Display aus und an; Stopp/Play, Skip, Song Radio, Album, Playlist-Start, Favoriten und Zufallswiedergabe bei Plex; Umschalter in beide Richtungen; Skip, Stopp, Play und Playlist-Start bei Spotify; „immer nur eine Quelle“ in beide Richtungen (andere Quelle am Server vorbei gestartet).
 - **Noch nicht getestet:** alle Knöpfe am WiiM; Album-Knopf, Favoriten und Zufallswiedergabe bei Spotify; Neustart der App durch den Hintergrunddienst; Display aus nach 3 Minuten Pause.
 

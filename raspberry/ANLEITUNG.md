@@ -107,7 +107,7 @@ Einen „Song Radio“-Knopf gibt es für Spotify nicht: Spotify gibt eigenen Ap
 
 | Wert | Bedeutung |
 |---|---|
-| `DELAY_MS` | Gleicht die Balken an den Ton an. Laufen sie vor, erhöhen; hinken sie hinterher, verringern. Eingestellt: 40 (rechnerisch Ton und Leiste etwa gleichauf). |
+| `DELAY_MS` | Hält die Balken zurück. Eingestellt: 0 (so früh wie möglich). Laufen die Balken dem Ton voraus, erhöhen. |
 | `RANGE_DB` | Kleiner = die Balken springen stärker, größer = ruhiger. |
 | `TILT_DB` | Hebt die Höhen an, damit rechts mehr passiert. |
 

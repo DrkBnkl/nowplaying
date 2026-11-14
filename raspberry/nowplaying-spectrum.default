@@ -8,9 +8,9 @@ PORT=8090
 BANDS=40
 # Bilder pro Sekunde
 FPS=30
-# Verzoegerung in Millisekunden. Laufen die Balken dem Ton voraus,
-# Wert erhoehen; hinken sie hinterher, verringern.
-DELAY_MS=40
+# Verzoegerung in Millisekunden. 0 = Balken so frueh wie moeglich. Laufen sie dem
+# Ton voraus, Wert erhoehen.
+DELAY_MS=0
 # Frequenzbereich in Hz
 FMIN=40
 FMAX=16000

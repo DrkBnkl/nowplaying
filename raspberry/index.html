@@ -282,8 +282,8 @@ function frame() {
   if (now - lastSpec > 1000) for (i = 0; i < N; i++) tg[i] = 0;
   var dirty = layout(), lit = [], peak = [];
   for (i = 0; i < N; i++) {
-    lv[i] += (tg[i] - lv[i]) * (tg[i] > lv[i] ? .91 : .44);
-    pk[i] = lv[i] >= pk[i] ? lv[i] : Math.max(lv[i], pk[i] - .024);
+    lv[i] += (tg[i] - lv[i]) * (tg[i] > lv[i] ? 1 : .6);     // wie SpectrumBar.java in der App
+    pk[i] = lv[i] >= pk[i] ? lv[i] : Math.max(lv[i], pk[i] - .04);
     lit[i] = Math.round(lv[i] * M);
     peak[i] = Math.max(lit[i], Math.round(pk[i] * M)) - 1;
     if (shown[i] !== lit[i] * 16 + peak[i]) { shown[i] = lit[i] * 16 + peak[i]; dirty = true; }

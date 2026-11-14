@@ -22,7 +22,7 @@ SOCK = "/run/nowplaying-spectrum/audio.sock"
 PORT = int(os.environ.get("PORT", "8090"))
 BANDS = int(os.environ.get("BANDS", "40"))
 FPS = float(os.environ.get("FPS", "30"))
-DELAY = float(os.environ.get("DELAY_MS", "200")) / 1000.0  # Balken an den Ton angleichen
+DELAY = float(os.environ.get("DELAY_MS", "0")) / 1000.0  # Balken zurueckhalten, falls sie dem Ton vorauslaufen
 FMIN = float(os.environ.get("FMIN", "40"))
 FMAX = float(os.environ.get("FMAX", "16000"))
 RANGE_DB = float(os.environ.get("RANGE_DB", "45"))
@@ -204,6 +204,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         seq = -1
         try:
+            # Jedes Bild sofort senden. Ohne das sammelt TCP die kleinen Pakete (Nagle) und wartet
+            # auf die Bestaetigung des Tablets: die Balken kommen dann verspaetet und in Schueben.
+            self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self.wfile.write(b"retry: 2000\n\n")
             while True:
                 with cond:

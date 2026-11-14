@@ -40,6 +40,8 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
     private static final int N = 40, M = 10;
     private static final long FRAME_MS = 33;        // 30 Bilder/s = Takt der Daten vom Pi
     private static final long SIGNAL_MS = 4000;     // ohne Signal so lange noch zeigen
+    // Bewegung der Balken je Bild (30 Bilder/s): Anteil des Wegs zum neuen Wert und Fall der Spitzen
+    private static final float RISE = 1f, FALL = .6f, PEAK_DROP = .04f;
     private static final int[][] BANDS = {{0, 5}, {5, 8}, {8, 10}};  // Zeilen [von, bis) je Farbe
 
     private volatile float[] target = new float[N];
@@ -183,8 +185,9 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
             int[] col = colors;
             int from = N, to = -1;   // geaenderte Spalten [from, to]
             for (int i = 0; i < N; i++) {
-                lv[i] += (tg[i] - lv[i]) * (tg[i] > lv[i] ? .91f : .44f);
-                pk[i] = lv[i] >= pk[i] ? lv[i] : Math.max(lv[i], pk[i] - .024f);
+                // Anstieg sofort (keine Verzoegerung), Abfall in wenigen Bildern, Spitzen fallen in gut 0,8 s
+                lv[i] += (tg[i] - lv[i]) * (tg[i] > lv[i] ? RISE : FALL);
+                pk[i] = lv[i] >= pk[i] ? lv[i] : Math.max(lv[i], pk[i] - PEAK_DROP);
                 lit[i] = Math.round(lv[i] * M);
                 peak[i] = Math.max(lit[i], Math.round(pk[i] * M)) - 1;
                 int key = lit[i] * 16 + peak[i];
