@@ -94,6 +94,10 @@ if [ "$SPOTIFY" = 1 ]; then
   set_conf LIBRESPOT_INITIAL_VOLUME "100"
   # Lautheitsangleichung wie bei Caldera
   set_conf LIBRESPOT_ENABLE_VOLUME_NORMALISATION
+  # Spotify regelt auf etwa -14 LUFS, Caldera (mit Plex-Analyse) auf etwa -19 LUFS:
+  # Gemessen am Ausgang war Spotify danach noch rund 3 dB lauter, deshalb 8 dB absenken. Voraussetzung: Calderas
+  # Lautstaerke steht auf 100. Pruefen: "level_db" unter http://<Pi>:8090/status
+  set_conf LIBRESPOT_NORMALISATION_PREGAIN "${SPOTIFY_PREGAIN:--8.0}"
   set_conf LIBRESPOT_ONEVENT "/usr/local/bin/np-librespot-event"
   systemctl enable raspotify
   systemctl restart raspotify
