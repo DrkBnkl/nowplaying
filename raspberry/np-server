@@ -172,8 +172,9 @@ CALDERA_HEADERS = {"X-Plex-Client-Identifier": "nowplaying-display",
 command_id = itertools.count(1)
 
 
-def skip_caldera():
-    http(CALDERA_URL + "/player/playback/skipNext?type=music&commandID=%d" % next(command_id),
+def caldera_command(name):
+    """Befehl an Calderas Companion-Schnittstelle, z. B. skipNext oder stop."""
+    http(CALDERA_URL + "/player/playback/%s?type=music&commandID=%d" % (name, next(command_id)),
          CALDERA_HEADERS, timeout=4)
 
 
@@ -189,9 +190,10 @@ def poll_caldera():
     key = tl.get("key") or (("/library/metadata/" + tl.get("ratingKey")) if tl.get("ratingKey") else "")
     if not key:
         return None
+    can = (tl.get("controllable") or "").split(",")
     item = dict(plex_meta(key), source="caldera", device="Caldera",
                 playing=tl.get("state") != "paused",
-                skip="skipNext" in (tl.get("controllable") or "").split(","))
+                skip="skipNext" in can, stop="stop" in can)
     prefetch_art(item["art"])
     try:
         item["next"] = plex_next(tl)
@@ -274,8 +276,9 @@ def librespot_event(ev):
 
 
 # ---------------------------------------------------------------- WiiM
-def skip_wiim():
-    http(f"https://{WIIM_HOST}/httpapi.asp?command=setPlayerCmd:next", insecure=True)
+def wiim_command(name):
+    """Befehl an den WiiM, z. B. next oder stop."""
+    http(f"https://{WIIM_HOST}/httpapi.asp?command=setPlayerCmd:{name}", insecure=True)
 
 
 def poll_wiim():
@@ -304,6 +307,7 @@ def poll_wiim():
         "album": clean(md.get("album")),
         "art": register_art(art, insecure=True) if art.startswith("http") else None,
         "skip": True,
+        "stop": True,
     }
 
 
@@ -354,15 +358,18 @@ def current():
     return {"source": "idle"}
 
 
-# Titel ueberspringen: nur Quellen, die sich steuern lassen. Spotify Connect auf dem Pi
+# Bedienung vom Tablet: nur Quellen, die sich steuern lassen. Spotify Connect auf dem Pi
 # (librespot) hat keine lokale Steuerung und fehlt deshalb.
-SKIP = {"caldera": skip_caldera, "wiim": skip_wiim}
+CONTROL = {
+    "skip": {"caldera": lambda: caldera_command("skipNext"), "wiim": lambda: wiim_command("next")},
+    "stop": {"caldera": lambda: caldera_command("stop"), "wiim": lambda: wiim_command("stop")},
+}
 
 
-def skip_current():
-    """Naechster Titel bei der Quelle, die gerade angezeigt wird. False, wenn das nicht geht."""
+def control(cmd):
+    """Befehl (skip, stop) an die Quelle, die gerade angezeigt wird. False, wenn das nicht geht."""
     c = current()
-    fn = SKIP.get(c.get("source")) if c.get("skip") else None
+    fn = CONTROL[cmd].get(c.get("source")) if c.get(cmd) else None
     if not fn:
         return False
     fn()
@@ -444,7 +451,8 @@ class Handler(BaseHTTPRequestHandler):
             for k in ("since", "seen", "push", "track", "pid"):
                 c.pop(k, None)
             c["display"] = "off" if c["source"] == "idle" else "on"
-            c["skip"] = bool(c.get("skip"))
+            for k in CONTROL:
+                c[k] = bool(c.get(k))
             c["spectrum"] = self.spectrum_url()
             return self.send(200, json.dumps(c).encode(), "application/json")
         if path.startswith("/art/"):
@@ -466,12 +474,12 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             n = 0
         body = self.rfile.read(n) if n > 0 else b""
-        if path == "/api/skip":
+        if path.startswith("/api/") and path[5:] in CONTROL:
             # Eigener Kopf: fremde Webseiten koennen ihn im Browser nicht ungefragt mitsenden
             if self.headers.get("X-NowPlaying") != "1":
                 return self.send(403, b"", "text/plain")
             try:
-                ok = skip_current()
+                ok = control(path[5:])
             except Exception:  # noqa: BLE001 – Quelle nicht erreichbar
                 ok = False
             return self.send(204 if ok else 409, b"", "text/plain")
