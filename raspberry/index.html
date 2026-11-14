@@ -196,6 +196,20 @@ function frame() {
 }
 function setRunning(on) { if (on && !running) { running = true; frame(); } else if (!on) running = false; }
 
+/* In der Tablet-App zeichnet die App die Leiste selbst (eigene Zeichenflaeche, spart auf dem
+   alten Tablet fast einen ganzen Prozessorkern). Die Seite meldet ihr nur, ob die Leiste
+   erlaubt ist, die Adresse des Spektrum-Dienstes und die Farben des Covers. */
+var APP = window.NowPlayingApp && window.NowPlayingApp.bar ? window.NowPlayingApp : null;
+var appBar = { on: false, url: "", sent: "" };
+function hex(c) { cx.fillStyle = c; return cx.fillStyle; }   // "hsl(...)" -> "#rrggbb"
+function syncAppBar() {
+  if (!APP) return;
+  var a = [appBar.on, appBar.url, hex(pal.low), hex(pal.mid), hex(pal.high)], s = a.join("|");
+  if (s === appBar.sent) return;
+  appBar.sent = s;
+  APP.bar(a[0], a[1], a[2], a[3], a[4]);
+}
+
 /* ================= Zustand, Vorladen und Ueberblenden ================= */
 var DEFAULT_PAL = { low: "#7A7A7A", mid: "#BDBDBD", high: "#F2F2F2", t1: "#F4F4F4", t2: "#CFCFCF", t3: "#9C9C9C", lum: 0 };
 var slides = document.getElementsByClassName("slide"), cur = -1, shownKey = null, wantKey = null;
@@ -248,6 +262,7 @@ function showSlide(d, e) {
            ["meta", [d.album, d.year].filter(function (v) { return v; }).join(" · "), p.t3]];
   for (var i = 0; i < t.length; i++) { var x = q(s, t[i][0]); x.textContent = t[i][1] || ""; x.style.color = t[i][2]; }
   pal = p;   // Leiste nimmt die Farben des neuen Covers
+  syncAppBar();
   s.className = "slide";            // sichtbar machen (noch transparent) ...
   s.offsetWidth;                    // ... Layout erzwingen, damit die Ueberblendung startet
   s.className = "slide on";
@@ -259,16 +274,24 @@ function showSlide(d, e) {
   cur = next;
 }
 function render(d) {
-  connectSpectrum(d.spectrum || "");
   var view = d.source === "idle" ? "off" : "play";
   var cls = view;
   if (view === "play" && !d.playing) cls += " paused";
-  // Leiste nur zeigen, wenn der Pi gerade wirklich Signal liefert (Musik direkt am WiiM: keins)
-  var spec = view === "play" && d.spectrum && new Date().getTime() - lastSignal <= 4000;
-  if (view === "play" && !spec) cls += " nospec";
-  document.body.className = cls;
-  // Zeichnen nur, solange die Leiste sichtbar ist (spart Rechenzeit auf dem alten Tablet)
-  setRunning(spec);
+  if (APP) {
+    // Tablet-App: sie holt die Daten und zeichnet die Leiste, hier bleibt die eigene aus
+    appBar.on = view === "play" && !!d.spectrum; appBar.url = d.spectrum || "";
+    syncAppBar();
+    if (view === "play") cls += " nospec";
+    document.body.className = cls;
+  } else {
+    connectSpectrum(d.spectrum || "");
+    // Leiste nur zeigen, wenn der Pi gerade wirklich Signal liefert (Musik direkt am WiiM: keins)
+    var spec = view === "play" && d.spectrum && new Date().getTime() - lastSignal <= 4000;
+    if (view === "play" && !spec) cls += " nospec";
+    document.body.className = cls;
+    // Zeichnen nur, solange die Leiste sichtbar ist (spart Rechenzeit auf dem alten Tablet)
+    setRunning(spec);
+  }
   if (view !== "play") return;
   var key = [d.art, d.artist, d.title, d.album, d.year].join("|");
   if (key !== shownKey && key !== wantKey) {

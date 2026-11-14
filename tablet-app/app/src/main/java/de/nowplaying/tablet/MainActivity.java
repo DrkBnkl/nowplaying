@@ -16,12 +16,14 @@ import android.os.PowerManager;
 import android.text.InputType;
 import android.view.View;
 import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -57,6 +59,7 @@ public class MainActivity extends Activity {
     private static final long UNREACHABLE_OFF_MS = 2 * 60 * 1000; // Server weg: Display aus
 
     private WebView web;
+    private SpectrumBar bar;
     private SharedPreferences prefs;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private volatile boolean alive = true;
@@ -125,7 +128,39 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
-        setContentView(web);
+        // Die Seite uebergibt die LED-Leiste an die App (siehe SpectrumBar)
+        bar = new SpectrumBar(this);
+        web.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public void bar(boolean on, String url, String low, String mid, String high) {
+                bar.configure(on, url, low, mid, high);
+            }
+        }, "NowPlayingApp");
+
+        // Leiste liegt genau ueber dem Platz, den die Seite dafuer frei laesst
+        // (#spec in index.html: links/rechts 5vw, unten 4.5vh, Hoehe 12vh)
+        final FrameLayout root = new FrameLayout(this);
+        root.addView(web, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        root.addView(bar, new FrameLayout.LayoutParams(1, 1));
+        root.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
+                final int w = r - l, h = b - t;
+                if (w <= 0 || h <= 0 || (w == or - ol && h == ob - ot && bar.getWidth() > 1)) return;
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                                Math.round(w * .90f), Math.round(h * .12f));
+                        lp.leftMargin = Math.round(w * .05f);
+                        lp.topMargin = h - Math.round(h * .045f) - lp.height;
+                        bar.setLayoutParams(lp);
+                    }
+                });
+            }
+        });
+        setContentView(root);
 
         baseUrl = prefs.getString(KEY_URL, null);
         if (baseUrl == null) showSettings();
@@ -259,6 +294,7 @@ public class MainActivity extends Activity {
     }
 
     private void turnOff() {
+        bar.setDisplayOff(true);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         web.onPause();
         if (dpm.isAdminActive(admin)) {
@@ -269,6 +305,7 @@ public class MainActivity extends Activity {
     }
 
     private void turnOn() {
+        bar.setDisplayOff(false);
         setBrightness(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         @SuppressWarnings("deprecation")
@@ -329,12 +366,15 @@ public class MainActivity extends Activity {
                     startActivity(i);
                 })
                 .setNegativeButton("Abbrechen", null)
+                .setOnDismissListener(dialog -> bar.setDialogOpen(false))
                 .show();
+        bar.setDialogOpen(true);  // die Leiste liegt ueber allen Fenstern, also solange ausblenden
     }
 
     @Override
     protected void onDestroy() {
         alive = false;
+        bar.shutdown();
         if (cpuLock != null && cpuLock.isHeld()) cpuLock.release();
         if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
         web.destroy();
