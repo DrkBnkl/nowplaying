@@ -37,7 +37,7 @@ Auf dem Yoga ist dafür USB-Debugging eingeschaltet (Entwickleroptionen).
 
 1. Die APK aufs Tablet bringen, per USB, Mail oder Cloud.
 2. Antippen und „Installation aus unbekannten Quellen“ erlauben.
-3. Die App starten und die Adresse des Raspberry eingeben: `http://192.168.178.68:8080`.
+3. Die App starten und die Adresse des Raspberry eingeben: `http://<Pi>:8080` (`<Pi>` = IP-Adresse oder Name des Raspberry im Heimnetz).
 4. Lange auf den Bildschirm drücken, dann **„Display-Steuerung aktivieren“** und bestätigen. Erst dann geht das Display ohne Musik wirklich aus. Ohne diese Berechtigung wird es nur auf die geringste Helligkeit gedimmt.
 5. In den Android-Einstellungen unter *Sicherheit → Bildschirmsperre* **„Keine“** wählen. Sonst steht beim Einschalten des Displays der Sperrbildschirm vor der Anzeige.
 6. In den Android-Einstellungen unter *Akku* bzw. *Energie sparen* die App von der Akku-Optimierung ausnehmen, falls es diese Option gibt.

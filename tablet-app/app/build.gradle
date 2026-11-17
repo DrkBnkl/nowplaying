@@ -16,7 +16,8 @@ android {
     }
 
     // Fester Schluessel im Projekt, damit Updates ohne Deinstallation gehen.
-    // Nur fuer den privaten Gebrauch gedacht.
+    // Nur fuer den privaten Gebrauch gedacht: Schluessel und Passwort sind oeffentlich,
+    // der Schluessel schuetzt also nichts (siehe README, Abschnitt Sicherheit).
     signingConfigs {
         fixed {
             storeFile file('../keystore/nowplaying.jks')

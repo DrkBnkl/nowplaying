@@ -121,9 +121,9 @@ Nicht ins Repository gehören und sind per `.gitignore` ausgeschlossen: `raspber
 
 ## Eingerichteter Stand (14.11.2026)
 
-- **Raspberry** „PlexAmpPi“ (Pi 3B, HiFiBerry Digi, Debian 13, 192.168.178.68): Dienste `nowplaying`, `nowplaying-spectrum`, `raspotify` laufen.
+- **Raspberry** „PlexAmpPi“ (Pi 3B, HiFiBerry Digi, Debian 13): Dienste `nowplaying`, `nowplaying-spectrum`, `raspotify` laufen.
   Caldera: Abtastrate der Quelle, Lautstärke 100, Lautheitsangleichung und Übergänge an. Spektrum-Verzögerung `DELAY_MS=0`. Spotify: Absenkung −2 dB, Web-Schnittstelle eingerichtet, Raspotify merkt sich die Anmeldung.
-- **Tablet** Lenovo Yoga Tab 3 8" (YT3-850L, Android 6.0.1, 192.168.178.109): App 1.9, Adresse `http://192.168.178.68:8080`, Display-Steuerung aktiv, Bildschirmsperre „Keine“, nicht benötigte Apps entfernt bzw. deaktiviert, USB-Debugging an.
+- **Tablet** Lenovo Yoga Tab 3 8" (YT3-850L, Android 6.0.1): App 1.9, Adresse `http://<Pi>:8080`, Display-Steuerung aktiv, Bildschirmsperre „Keine“, nicht benötigte Apps entfernt bzw. deaktiviert, USB-Debugging an.
 - **Getestet** mit echter Musik: Plexamp und Spotify über den Pi mit Cover, Songinfos und Leiste; Überblendung; Display aus und an; Stopp/Play, Skip, Song Radio, Album, Playlist-Start, Favoriten und Zufallswiedergabe bei Plex; Umschalter in beide Richtungen; Skip, Stopp, Play und Playlist-Start bei Spotify; „immer nur eine Quelle“ in beide Richtungen (andere Quelle am Server vorbei gestartet).
 - **Noch nicht getestet:** alle Knöpfe am WiiM, die Ansicht des WiiM am Tablet und der Umschalter vom WiiM zu Plex; Album-Knopf, Favoriten und Zufallswiedergabe bei Spotify; Weiterlaufen der Seite nach Wecken von Hand ohne Musik (App 1.9); Display aus nach 3 Minuten Pause.
 
@@ -134,8 +134,8 @@ Nicht ins Repository gehören und sind per `.gitignore` ausgeschlossen: `raspber
 | Was du siehst | Wo nachsehen |
 |---|---|
 | Tablet zeigt gar nichts oder einen Ladefehler | Adresse in der App prüfen (lange drücken); läuft `nowplaying` auf dem Pi? |
-| Display bleibt aus, obwohl Musik läuft | `http://192.168.178.68:8080/setup`: Zeigt eine Quelle einen Fehler? |
-| Cover da, aber keine Leiste | Läuft die Musik über PlexAmpPi? `curl http://192.168.178.68:8090/status` |
+| Display bleibt aus, obwohl Musik läuft | `http://<Pi>:8080/setup`: Zeigt eine Quelle einen Fehler? |
+| Cover da, aber keine Leiste | Läuft die Musik über PlexAmpPi? `curl http://<Pi>:8090/status` |
 | Leiste läuft dem Ton voraus | `DELAY_MS` in `/etc/default/nowplaying-spectrum` erhöhen |
 | Leiste hinkt dem Ton hinterher | Steht `DELAY_MS` in `/etc/default/nowplaying-spectrum` auf 0? Weniger geht nicht; `install.sh` ändert eine vorhandene Datei nicht |
 | Leiste ruckelt | Belegt die App einen ganzen Prozessorkern? Dann zeichnet die Seite dauernd neu (z. B. durch eine Animation in `index.html`). |
@@ -143,7 +143,7 @@ Nicht ins Repository gehören und sind per `.gitignore` ausgeschlossen: `raspber
 | Umschalter und Spotify-Knöpfe fehlen | `/setup`: „Spotify-Steuerung: eingerichtet“? Sonst Anmeldung wiederholen (`np-spotify-login`). |
 | „Zu Spotify“ tut nichts | Kennt das Spotify-Konto das Gerät „PlexAmpPi“? Einmal in der Spotify-App auswählen. |
 | Funken-Knopf ausgegraut | Der Titel ist in Plex nicht klanglich analysiert; Analyse im Plex-Server anstoßen. |
-| Spotify und Plex verschieden laut | Calderas Lautstärke auf 100? Pegel beider Quellen: `level_db` unter `http://192.168.178.68:8090/status` |
+| Spotify und Plex verschieden laut | Calderas Lautstärke auf 100? Pegel beider Quellen: `level_db` unter `http://<Pi>:8090/status` |
 | Display geht ohne Musik nicht aus | In der App lange drücken → „Display-Steuerung aktivieren“ |
 
 ---
@@ -155,3 +155,15 @@ Nicht ins Repository gehören und sind per `.gitignore` ausgeschlossen: `raspber
 - **Spektrum** (`np-spectrum-feed`, `np-spectrum-server`): Das ALSA-Gerät `nowplaying` reicht das Signal unverändert an die HiFiBerry weiter und gibt eine Kopie ab. Daraus werden per FFT (numpy) 40 Bänder von 40 Hz bis 16 kHz und per Server-Sent Events ans Tablet geschickt. Kommt der Dienst nicht hinterher, wird die Kopie verworfen – die Musik läuft immer weiter. `/status` nennt zusätzlich den mittleren Pegel (`level_db`).
 - **Spotify:** Raspotify (librespot 0.8) spielt, feste Lautstärke, Lautheitsangleichung an, Absenkung −2 dB, Ereignisse über `np-librespot-event`. Gesteuert wird über die Spotify-Web-Schnittstelle (Anmeldung mit `np-spotify-login`, PKCE ohne Client-Secret); der Server gleicht alle 10 s ab, ob Spotify auf dem Pi spielt.
 - **Tablet-App** (`tablet-app/`): Java, ohne Fremdbibliotheken, ab Android 5. Zeigt die Seite im Vollbild und zeichnet die LED-Leiste nativ auf einer eigenen Fläche darüber (in der Webansicht kostete sie einen ganzen Prozessorkern; jetzt braucht die App etwa ein Viertel eines Kerns). Schaltet das Display per Geräteadministrator aus und per WakeLock wieder ein, holt sich nach 60 s in den Vordergrund zurück, lädt eine Seite neu, die sich nicht mehr meldet, und startet nach einem Neustart von selbst.
+
+---
+
+## Sicherheit
+
+- **Nur im Heimnetz betreiben.** Anzeige-Server (Port 8080) und Spektrum-Dienst (Port 8090) haben keine Anmeldung: Wer sie erreicht, kann die Musik steuern. Die Ports deshalb nicht im Router freigeben oder anderweitig ins Internet weiterleiten.
+- **Zugangsdaten** (Plex-Token, Spotify-Anmeldung) liegen nur auf dem Pi in `/etc/default/nowplaying` bzw. `/var/lib/private/nowplaying/` und nie im Repository.
+- **Signierschlüssel der Tablet-App:** `tablet-app/keystore/nowplaying.jks` ist absichtlich mit festem Passwort eingecheckt, damit jeder Build als Update der installierten App durchgeht. Er schützt deshalb nichts: Jeder kann damit eine APK bauen, die Android als Update annimmt. APKs nur aus dem eigenen Build bzw. den eigenen GitHub-Actions-Läufen installieren. Wer die App weitergeben will, erzeugt einen eigenen Schlüssel (`keytool -genkeypair -v -keystore eigener.jks -alias nowplaying -keyalg RSA -keysize 2048 -validity 10000`) und trägt ihn in `tablet-app/app/build.gradle` ein.
+
+## Lizenz
+
+[MIT](LICENSE). Die Bildschirmfotos in `vorschau/` zeigen Albumcover und Namen der jeweiligen Rechteinhaber; sie dienen nur zur Veranschaulichung und fallen nicht unter die Lizenz.

@@ -395,7 +395,8 @@ public class MainActivity extends Activity {
         final EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
         input.setSingleLine(true);
-        input.setText(baseUrl != null ? baseUrl : "http://192.168.178.68:8080");
+        input.setText(baseUrl != null ? baseUrl : "");
+        input.setHint("http://<Pi>:8080");
         box.addView(input);
 
         TextView status = new TextView(this);

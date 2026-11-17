@@ -42,11 +42,11 @@ Status aller Quellen: `http://<Pi>:8080/setup`
 Zuerst die Einstellungen anlegen: `nowplaying.default.beispiel` nach `nowplaying.env` kopieren und den Plex-Token eintragen (die Datei wird nicht eingecheckt). Dann den Ordner `raspberry` auf den Pi kopieren und dort installieren:
 
 ```bash
-scp -r raspberry plexamppi@192.168.178.68:
+scp -r raspberry <Benutzer>@<Pi>:
 ```
 
 ```bash
-ssh plexamppi@192.168.178.68 'cd raspberry && sudo ./install.sh'
+ssh <Benutzer>@<Pi> 'cd raspberry && sudo ./install.sh'
 ```
 
 Das Skript:
@@ -167,7 +167,7 @@ sudo ./uninstall.sh --spotify  # Raspotify ebenfalls entfernen
 | Cover da, keine Leiste | `curl http://localhost:8090/status`: `"active": true`? Läuft die Musik über PlexAmpPi? |
 | Spotify-Titel fehlt | `sudo journalctl -u raspotify -n 50`; `LIBRESPOT_ONEVENT` in `/etc/raspotify/conf` gesetzt? |
 | Spotify oder Caldera stumm | Spielt der andere noch? Der Server löst das nach etwa 10 s selbst; sonst pausieren und 5 s warten. WiiM auf optischem Eingang? |
-| Musik hält an oder springt, ohne dass du etwas gedrückt hast | `sudo journalctl -u nowplaying -n 30`: Der Server protokolliert jeden Befehl von der Seite mit der Adresse des Absenders („Befehl stop (caldera) von 192.168.178.109“) und jedes Eingreifen der Regel „immer nur eine Quelle“ („Automatisch …“). Steht dort nichts, kam der Befehl nicht vom Server, sondern z. B. aus einer Plex- oder Spotify-App. |
+| Musik hält an oder springt, ohne dass du etwas gedrückt hast | `sudo journalctl -u nowplaying -n 30`: Der Server protokolliert jeden Befehl von der Seite mit der Adresse des Absenders („Befehl stop (caldera) von <Tablet-IP>“) und jedes Eingreifen der Regel „immer nur eine Quelle“ („Automatisch …“). Steht dort nichts, kam der Befehl nicht vom Server, sondern z. B. aus einer Plex- oder Spotify-App. |
 | Umschalter fehlt am Tablet | `/setup`: „Spotify-Steuerung: eingerichtet“? `SPOTIFY_CLIENT_ID` gesetzt, `spotify.json` vorhanden und für den Dienst lesbar? |
 | „Zu Spotify“ ohne Wirkung | Das Konto kennt „PlexAmpPi“ nicht: in der Spotify-App einmal auswählen. Liegt `/var/lib/raspotify/credentials.json` vor? |
 | Raspotify startet immer wieder neu | `journalctl -u raspotify`: „Device … Busy“ heißt, die Soundkarte war belegt (Caldera spielte oder hielt sie noch). |
