@@ -1,19 +1,19 @@
 #!/usr/bin/python3
-"""Einmalige Spotify-Anmeldung fuer den Umschalter und die Spotify-Steuerung.
+"""One-time Spotify login for the source switcher and Spotify controls.
 
-Laeuft auf dem Rechner, an dem du im Browser bei Spotify angemeldet bist
-(nicht auf dem Pi):
+Run this on the computer where you are logged in to Spotify in the browser
+(not on the Pi):
 
-    ./np-spotify-login <Client-ID>
+    ./np-spotify-login <client-id>
 
-Vorher bei https://developer.spotify.com/dashboard eine App anlegen und als
-Redirect-URI genau  http://127.0.0.1:8888/callback  eintragen. Das Programm
-oeffnet die Spotify-Anmeldeseite, nimmt die Antwort lokal entgegen und
-schreibt das Ergebnis nach spotify.json (neben diesem Programm). Die Datei
-enthaelt ein Zugangstoken fuer dein Konto: nicht einchecken, nicht weitergeben.
-install.sh bringt sie auf dem Pi an ihren Platz.
+First create an app at https://developer.spotify.com/dashboard and set the
+redirect URI to exactly  http://127.0.0.1:8888/callback . The program opens
+the Spotify login page, receives the response locally and writes the result
+to spotify.json (next to this program). The file contains an access token
+for your account: do not commit it, do not share it. install.sh puts it in
+place on the Pi.
 
-Es wird kein Client-Secret gebraucht (Anmeldung mit PKCE).
+No client secret is needed (login uses PKCE).
 """
 import base64
 import hashlib
@@ -26,16 +26,16 @@ import urllib.parse
 import urllib.request
 import webbrowser
 
-# Wiedergabe lesen und steuern; Hoerverlauf und Playlists fuer die Playlist-Auswahl am Tablet
+# Read and control playback; listening history and playlists for the playlist picker on the tablet
 SCOPES = ("user-read-playback-state user-modify-playback-state "
           "user-read-recently-played playlist-read-private")
-PORT = 8888  # muss zur eingetragenen Redirect-URI passen
+PORT = 8888  # must match the registered redirect URI
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "spotify.json")
 
 
 def main():
     if len(sys.argv) != 2 or not sys.argv[1].strip():
-        sys.exit("Aufruf: np-spotify-login <Client-ID>")
+        sys.exit("Usage: np-spotify-login <client-id>")
     client_id = sys.argv[1].strip()
     verifier = secrets.token_urlsafe(64)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
@@ -54,13 +54,13 @@ def main():
                 self.end_headers()
                 return
             if q.get("state", [""])[0] != state:
-                result["error"] = "Antwort passt nicht zu dieser Anmeldung (state)"
+                result["error"] = "Response does not match this login (state)"
             elif "code" in q:
                 result["code"] = q["code"][0]
             else:
-                result["error"] = q.get("error", ["unbekannter Fehler"])[0]
-            text = "Anmeldung angekommen. Dieses Fenster kann geschlossen werden." \
-                if "code" in result else "Anmeldung fehlgeschlagen: " + result["error"]
+                result["error"] = q.get("error", ["unknown error"])[0]
+            text = "Login received. You can close this window." \
+                if "code" in result else "Login failed: " + result["error"]
             body = ("<!DOCTYPE html><meta charset='utf-8'><title>Now Playing</title>"
                     "<p style='font-family:sans-serif;margin:3em'>%s</p>" % text).encode()
             self.send_response(200)
@@ -74,13 +74,13 @@ def main():
     url = "https://accounts.spotify.com/authorize?" + urllib.parse.urlencode({
         "response_type": "code", "client_id": client_id, "redirect_uri": redirect, "state": state,
         "scope": SCOPES, "code_challenge_method": "S256", "code_challenge": challenge})
-    print("Bitte im Browser bei Spotify anmelden und zustimmen:\n\n  %s\n" % url, flush=True)
+    print("Please log in to Spotify in your browser and grant access:\n\n  %s\n" % url, flush=True)
     webbrowser.open(url)
     while not result:
         srv.handle_request()
     srv.server_close()
     if "code" not in result:
-        sys.exit("Anmeldung fehlgeschlagen: " + result["error"])
+        sys.exit("Login failed: " + result["error"])
 
     data = urllib.parse.urlencode({"grant_type": "authorization_code", "code": result["code"],
                                    "redirect_uri": redirect, "client_id": client_id,
@@ -91,12 +91,12 @@ def main():
         with urllib.request.urlopen(req, timeout=15) as r:
             tok = json.loads(r.read())
     except urllib.error.HTTPError as e:
-        sys.exit("Spotify hat die Anmeldung abgelehnt (HTTP %d)" % e.code)
+        sys.exit("Spotify rejected the login (HTTP %d)" % e.code)
     if not tok.get("refresh_token"):
-        sys.exit("Spotify hat kein Refresh-Token geliefert")
+        sys.exit("Spotify did not return a refresh token")
     with open(os.open(OUT, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
         json.dump({"refresh_token": tok["refresh_token"]}, f)
-    print("Fertig. Anmeldung gespeichert in %s" % OUT)
+    print("Done. Login saved to %s" % OUT)
 
 
 if __name__ == "__main__":

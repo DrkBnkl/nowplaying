@@ -1,9 +1,9 @@
 #!/bin/bash
-# Entfernt Now Playing vom Raspberry wieder (Server, Spektrum-Abzweig, optional Raspotify).
-# Aufruf:  sudo ./uninstall.sh              Raspotify bleibt, bekommt aber seine alte Konfiguration zurueck
-#          sudo ./uninstall.sh --spotify    Raspotify ebenfalls deinstallieren
+# Removes Now Playing from the Raspberry Pi (server, spectrum tap, optionally Raspotify).
+# Usage:  sudo ./uninstall.sh              Raspotify stays, but gets its previous configuration back
+#         sudo ./uninstall.sh --spotify    also uninstall Raspotify
 set -e
-[ "$(id -u)" = 0 ] || { echo "Bitte mit sudo ausfuehren."; exit 1; }
+[ "$(id -u)" = 0 ] || { echo "Please run with sudo."; exit 1; }
 
 for s in nowplaying nowplaying-spectrum; do
   systemctl disable --now "$s" 2>/dev/null || true
@@ -23,5 +23,5 @@ elif [ -f /etc/raspotify/conf.vor-nowplaying ]; then
   systemctl restart raspotify 2>/dev/null || true
 fi
 
-echo "Entfernt. Die Einstellungen in /etc/default/nowplaying und /etc/default/nowplaying-spectrum"
-echo "bleiben liegen (koennen geloescht werden). Caldera danach neu starten."
+echo "Removed. The settings in /etc/default/nowplaying and /etc/default/nowplaying-spectrum"
+echo "are kept (you can delete them). Restart Caldera afterwards."

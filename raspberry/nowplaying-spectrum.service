@@ -1,5 +1,5 @@
 [Unit]
-Description=Now Playing Spektrum-Dienst (FFT fuer die Tablet-Anzeige)
+Description=Now Playing spectrum service (FFT for the tablet display)
 After=network.target sound.target
 
 [Service]

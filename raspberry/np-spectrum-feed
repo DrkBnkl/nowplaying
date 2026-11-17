@@ -1,11 +1,11 @@
 #!/usr/bin/python3 -S
-"""Wird von ALSA fuer jeden Wiedergabe-Stream gestartet (pcm "nowplaying").
+"""Started by ALSA for every playback stream (pcm "nowplaying").
 
-ALSA schreibt eine Kopie des Audiosignals als WAV auf stdin. Dieses
-Programm liest es und reicht es als Datagramme an np-spectrum-server
-weiter. Grundregel: NIEMALS die Wiedergabe aufhalten. Laeuft der Server
-nicht oder kommt er nicht hinterher, werden Daten einfach verworfen,
-stdin wird aber immer weiter zuegig gelesen.
+ALSA writes a copy of the audio signal as WAV to stdin. This program
+reads it and forwards it as datagrams to np-spectrum-server.
+Ground rule: NEVER hold up playback. If the server is not running or
+cannot keep up, data is simply dropped, but stdin is always read
+promptly.
 """
 import os
 import socket
@@ -44,7 +44,7 @@ def main():
         try:
             sock.sendto(data, SOCK)
         except OSError:
-            pass  # Server weg oder Puffer voll -> verwerfen
+            pass  # server gone or buffer full -> drop
 
     head = readn(12)
     if not head:
@@ -77,7 +77,7 @@ def main():
     header = struct.pack("<IBIHHHH", pid, 0, rate, channels, bits, tag, block)
     send(header)
     prefix = struct.pack("<IB", pid, 1)
-    chunk = block * max(1, rate // 100)  # ca. 10 ms pro Datagramm
+    chunk = block * max(1, rate // 100)  # approx. 10 ms per datagram
     rest = b""
     n = 0
     while True:
@@ -86,7 +86,7 @@ def main():
             break
         n += 1
         if n % 100 == 0:
-            send(header)  # ca. jede Sekunde wiederholen: ein neu gestarteter Server findet den Strom sofort
+            send(header)  # repeat about once per second so a freshly started server picks up the stream right away
         data = rest + data
         cut = len(data) - len(data) % block
         rest = data[cut:]
@@ -97,7 +97,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:  # noqa: BLE001 – auf keinen Fall abbrechen, sonst stockt die Wiedergabe
+    except Exception:  # noqa: BLE001 - never abort, otherwise playback stalls
         try:
             drain()
         except Exception:  # noqa: BLE001

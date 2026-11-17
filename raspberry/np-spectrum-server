@@ -1,11 +1,11 @@
 #!/usr/bin/python3
-"""Spektrum-Dienst fuer die Now-Playing-Anzeige.
+"""Spectrum service for the Now Playing display.
 
-Empfaengt die Audio-Kopie von np-spectrum-feed, berechnet per FFT
-40 Frequenzbaender und verteilt sie als Server-Sent Events:
+Receives the audio copy from np-spectrum-feed, computes 40 frequency
+bands via FFT and distributes them as Server-Sent Events:
 
-    GET /spectrum  ->  data: 0;120;530;...;0     (40 Werte, 0..1000, ~30x pro Sekunde)
-    GET /status    ->  JSON mit Format und Zustand
+    GET /spectrum  ->  data: 0;120;530;...;0     (40 values, 0..1000, ~30 times per second)
+    GET /status    ->  JSON with format and state
 """
 import json
 import os
@@ -22,18 +22,18 @@ SOCK = "/run/nowplaying-spectrum/audio.sock"
 PORT = int(os.environ.get("PORT", "8090"))
 BANDS = int(os.environ.get("BANDS", "40"))
 FPS = float(os.environ.get("FPS", "30"))
-DELAY = float(os.environ.get("DELAY_MS", "0")) / 1000.0  # Balken zurueckhalten, falls sie dem Ton vorauslaufen
+DELAY = float(os.environ.get("DELAY_MS", "0")) / 1000.0  # hold bars back if they run ahead of the audio
 FMIN = float(os.environ.get("FMIN", "40"))
 FMAX = float(os.environ.get("FMAX", "16000"))
 RANGE_DB = float(os.environ.get("RANGE_DB", "45"))
-TILT_DB = float(os.environ.get("TILT_DB", "3"))  # Anhebung pro Oktave, damit Hoehen sichtbar werden
+TILT_DB = float(os.environ.get("TILT_DB", "3"))  # boost per octave so the treble becomes visible
 
 lock = threading.Lock()
 stream = {"pid": None, "rate": 44100, "channels": 2, "bytes": 2, "bits": 16, "float": False, "last": 0.0}
 ring = np.zeros(16384, dtype=np.float32)
 ring_pos = 0
-frames = deque()       # (ausgabezeit, text)
-levels = deque(maxlen=30)   # (Quadratsumme, Anzahl Abtastwerte) je Sekunde Ton
+frames = deque()       # (output time, text)
+levels = deque(maxlen=30)   # (sum of squares, sample count) per second of audio
 level_acc = [0.0, 0]
 current = {"text": ";".join(["0"] * BANDS), "seq": 0}
 cond = threading.Condition()
@@ -46,7 +46,7 @@ def decode(data):
     elif nb == 4 and stream["float"]:
         x = np.frombuffer(data, dtype="<f4").astype(np.float32)
     elif nb == 4:
-        # S24_LE steckt in 4 Byte (24 Bit in den unteren Bytes), S32_LE nutzt alle 32
+        # S24_LE is packed in 4 bytes (24 bits in the lower bytes), S32_LE uses all 32
         full = 8388608.0 if stream["bits"] == 24 else 2147483648.0
         x = np.frombuffer(data, dtype="<i4").astype(np.float32) / full
     elif nb == 3:
@@ -71,7 +71,7 @@ def receiver():
     s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 << 20)
     s.bind(SOCK)
-    os.chmod(SOCK, 0o666)  # Caldera laeuft unter eigenem Benutzer
+    os.chmod(SOCK, 0o666)  # Caldera runs as its own user
     while True:
         pkt = s.recv(1 << 17)
         if len(pkt) < 5:
@@ -80,7 +80,7 @@ def receiver():
         with lock:
             if kind == 0 and len(pkt) >= 17:
                 rate, ch, bits, tag, block = struct.unpack("<IHHHH", pkt[5:17])
-                if pid != stream["pid"]:   # neuer Strom (andere Quelle): Pegelmessung neu beginnen
+                if pid != stream["pid"]:   # new stream (different source): restart level measurement
                     levels.clear()
                     level_acc[0], level_acc[1] = 0.0, 0
                 stream.update(pid=pid, rate=rate, channels=max(1, ch), bits=bits,
@@ -90,7 +90,7 @@ def receiver():
                 continue
             try:
                 x = decode(pkt[5:])
-            except ValueError:  # Paketlaenge passt nicht zum Format: verwerfen, nicht abbrechen
+            except ValueError:  # packet length does not match the format: drop, don't abort
                 continue
             if x is None or not len(x):
                 continue
@@ -108,7 +108,7 @@ def receiver():
                     ring[: n - k] = x[k:]
                 ring_pos = end % len(ring)
             stream["last"] = time.time()
-            # Pegel: Quadratsumme je Sekunde sammeln, /status mittelt die letzten 30 s
+            # Level: accumulate sum of squares per second, /status averages the last 30 s
             level_acc[0] += float(np.dot(x, x))
             level_acc[1] += n
             if level_acc[1] >= stream["rate"]:
@@ -139,8 +139,8 @@ def analyzer():
                 hi = np.maximum(np.searchsorted(freqs, edges[1:]), lo + 1)
                 centers = np.sqrt(edges[:-1] * edges[1:])
                 tilt = TILT_DB * np.log2(centers / 1000.0)
-                # Im Bass sind die Baender schmaler als der FFT-Abstand: dort zwischen den
-                # Stuetzstellen interpolieren, sonst zeigen mehrere Balken denselben Wert
+                # In the bass the bands are narrower than the FFT bin spacing: interpolate between
+                # bins there, otherwise several bars show the same value
                 narrow = (edges[1:] - edges[:-1]) < freqs[1]
                 cache[key] = (np.hanning(win).astype(np.float32), lo, hi, tilt, freqs, centers, narrow)
             w, lo, hi, tilt, freqs, centers, narrow = cache[key]
@@ -149,14 +149,14 @@ def analyzer():
             band = np.where(narrow, np.interp(centers, freqs, mag), band)
             db = 20 * np.log10(band + 1e-9) + tilt
             peak = float(db.max())
-            ref = peak if peak > ref else max(ref - 0.5 * period, peak, -60.0)  # Auto-Pegel
+            ref = peak if peak > ref else max(ref - 0.5 * period, peak, -60.0)  # auto gain
             lvl = np.clip((db - (ref - RANGE_DB)) / RANGE_DB, 0, 1)
             text = ";".join(str(int(v * 1000)) for v in lvl)
         frames.append((t0 + DELAY, text))
         now = time.time()
         while frames and frames[0][0] <= now:
             _, txt = frames.popleft()
-            # Unveraenderte Bilder (Stille) nur zweimal pro Sekunde senden statt 30-mal
+            # Send unchanged frames (silence) only twice per second instead of 30 times
             if txt == current["text"] and now - sent < 0.5:
                 continue
             sent = now
@@ -180,7 +180,7 @@ class Handler(BaseHTTPRequestHandler):
                 st = dict(stream)
                 sq, cnt = sum(l[0] for l in levels), sum(l[1] for l in levels)
             st["active"] = time.time() - st["last"] < 0.5
-            # mittlerer Pegel (dBFS) der letzten bis zu 30 s Ton, zum Vergleich der Lautstaerke der Quellen
+            # average level (dBFS) over up to the last 30 s of audio, for comparing the loudness of sources
             st["level_db"] = round(10 * np.log10(sq / cnt + 1e-12), 1) if cnt else None
             st["level_seconds"] = len(levels)
             body = json.dumps(st).encode()
@@ -204,8 +204,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         seq = -1
         try:
-            # Jedes Bild sofort senden. Ohne das sammelt TCP die kleinen Pakete (Nagle) und wartet
-            # auf die Bestaetigung des Tablets: die Balken kommen dann verspaetet und in Schueben.
+            # Send every frame immediately. Otherwise TCP batches the small packets (Nagle) and waits
+            # for the tablet's ACK: the bars then arrive late and in bursts.
             self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self.wfile.write(b"retry: 2000\n\n")
             while True:
@@ -221,7 +221,7 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     threading.Thread(target=receiver, daemon=True).start()
     threading.Thread(target=analyzer, daemon=True).start()
-    print(f"Spektrum-Dienst auf Port {PORT}, {BANDS} Baender, {FPS:.0f} fps, Verzoegerung {DELAY*1000:.0f} ms")
+    print(f"Spectrum service on port {PORT}, {BANDS} bands, {FPS:.0f} fps, delay {DELAY*1000:.0f} ms")
     srv = ThreadingHTTPServer(("", PORT), Handler)
     srv.daemon_threads = True
     srv.serve_forever()

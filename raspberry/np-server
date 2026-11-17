@@ -1,22 +1,22 @@
 #!/usr/bin/python3
-"""Now-Playing-Anzeige fuer das Tablet, laeuft auf dem Raspberry.
+"""Now Playing display for the tablet, runs on the Raspberry Pi.
 
-Quellen (Prioritaet: was spielt, gewinnt; sonst das zuletzt pausierte):
-  caldera  Caldera Music auf diesem Pi (lokale Companion-Schnittstelle).
-           Titel und Cover kommen vom Plex-Server.
-  spotify  Spotify Connect auf diesem Pi (librespot/Raspotify).
-           librespot meldet Titelwechsel ueber np-librespot-event an
-           POST /api/librespot (nur von localhost angenommen).
-  wiim     alles, was direkt auf dem WiiM laeuft (Radio, AirPlay,
-           Spotify mit dem WiiM als Lautsprecher).
+Sources (priority: whatever is playing wins; otherwise the most recently paused one):
+  caldera  Caldera Music on this Pi (local companion interface).
+           Track info and cover art come from the Plex server.
+  spotify  Spotify Connect on this Pi (librespot/Raspotify).
+           librespot reports track changes via np-librespot-event to
+           POST /api/librespot (accepted from localhost only).
+  wiim     anything playing directly on the WiiM (radio, AirPlay,
+           Spotify with the WiiM as the speaker).
 
-Laeuft keine Musik, meldet /api/now nach OFF_DELAY Sekunden "display":"off"
-(bei pausiertem Caldera/WiiM erst nach PAUSE_DELAY, solange zeigt das Tablet "Play");
-die Tablet-App schaltet dann das Display aus und bei Musik wieder ein.
+When no music is playing, /api/now reports "display":"off" after OFF_DELAY seconds
+(for a paused Caldera/WiiM only after PAUSE_DELAY; until then the tablet shows "Play");
+the tablet app then turns the display off, and back on when music plays.
 
-Nur Python-Standardbibliothek. Das Tablet spricht nur einfaches HTTP mit
-diesem Server; alle Cover werden hier durchgereicht (umgeht alte
-Zertifikate auf Android 6).
+Python standard library only. The tablet talks plain HTTP to this server only;
+all cover art is proxied through here (works around outdated certificates
+on Android 6).
 """
 import glob
 import hashlib
@@ -38,30 +38,79 @@ PLEX_URL = os.environ.get("PLEX_URL", "").rstrip("/")
 PLEX_TOKEN = os.environ.get("PLEX_TOKEN", "")
 WIIM_HOST = os.environ.get("WIIM_HOST", "")
 SPOTIFY_CONNECT = os.environ.get("SPOTIFY_CONNECT", "yes").lower() in ("1", "yes", "ja", "true", "on")
+# Language of the text shown on the display and the /setup page: "de" (default) or "en"
+UI_LANG = os.environ.get("UI_LANG", "de").strip().lower()
+if UI_LANG not in ("de", "en"):
+    UI_LANG = "de"
 
 INTERVAL = {
     "caldera": float(os.environ.get("CALDERA_INTERVAL", "1")),
     "wiim": float(os.environ.get("WIIM_INTERVAL", "5")),
 }
-# Sekunden, die nach Pause oder Ende der Musik das Cover (abgedunkelt) stehen
-# bleibt, bevor das Display ausgeht. Ueberbrueckt auch kurze Luecken zwischen Titeln.
+# Seconds the cover stays up (dimmed) after music pauses or ends before the display
+# turns off. Also bridges short gaps between tracks.
 OFF_DELAY = float(os.environ.get("OFF_DELAY", "10"))
-# Sekunden, die eine pausierte Quelle mit Play-Knopf stehen bleibt (z. B. nach dem
-# Stopp-Knopf am Tablet), bevor das Display ausgeht
+# Seconds a paused source stays up with a Play button (e.g. after the stop button
+# on the tablet) before the display turns off
 PAUSE_DELAY = float(os.environ.get("PAUSE_DELAY", "180"))
-# Spektrum-Dienst: "auto" = gleicher Rechner wie diese Seite, Port 8090
+# Spectrum service: "auto" = same host as this page, port 8090
 SPECTRUM_URL = os.environ.get("SPECTRUM_URL", "auto")
-# Port des Spektrum-Dienstes fuer "auto" (muss zu PORT in /etc/default/nowplaying-spectrum passen)
+# Port of the spectrum service for "auto" (must match PORT in /etc/default/nowplaying-spectrum)
 SPECTRUM_PORT = int(os.environ.get("SPECTRUM_PORT", "8090"))
-STALE_AFTER = 30  # s ohne erfolgreiche Abfrage -> Quelle ignorieren
+STALE_AFTER = 30  # seconds without a successful poll -> ignore the source
+
+# User-facing text (display and /setup page). Log messages stay English.
+T = {
+    "de": {
+        "track_n_of_m": "Titel {n} von {m}",
+        "song_radio": "Song Radio",
+        "not_configured": "nicht konfiguriert",
+        "error": "Fehler: {msg}",
+        "playing": "spielt",
+        "paused": "Pause",
+        "ok_item": "OK – {state}: {artist} – {title}",
+        "ok_idle": "OK – nichts aktiv",
+        "status_title": "Now Playing – Status",
+        "spotify_control": "Spotify-Steuerung (Umschalter, Skip, Stopp): {state}",
+        "set_up": "eingerichtet",
+        "not_set_up": "nicht eingerichtet",
+        "settings_hint": "Einstellungen: <code>/etc/default/nowplaying</code> auf dem Pi, danach\n"
+                         "<code>sudo systemctl restart nowplaying</code>.",
+        "to_display": "→ Anzeige",
+    },
+    "en": {
+        "track_n_of_m": "Track {n} of {m}",
+        "song_radio": "Song Radio",
+        "not_configured": "not configured",
+        "error": "Error: {msg}",
+        "playing": "playing",
+        "paused": "paused",
+        "ok_item": "OK – {state}: {artist} – {title}",
+        "ok_idle": "OK – nothing active",
+        "status_title": "Now Playing – Status",
+        "spotify_control": "Spotify control (switch, skip, stop): {state}",
+        "set_up": "set up",
+        "not_set_up": "not set up",
+        "settings_hint": "Settings: <code>/etc/default/nowplaying</code> on the Pi, then\n"
+                         "<code>sudo systemctl restart nowplaying</code>.",
+        "to_display": "→ Display",
+    },
+}
+
+
+def tr(key, **kw):
+    """User-facing text in UI_LANG (falls back to German for missing keys)."""
+    text = T[UI_LANG].get(key, T["de"][key])
+    return text.format(**kw) if kw else text
+
 
 INSECURE = ssl.create_default_context()
 INSECURE.check_hostname = False
 INSECURE.verify_mode = ssl.CERT_NONE
 
 lock = threading.Lock()
-state = {}        # quelle -> item
-errors = {}       # quelle -> letzte Fehlermeldung
+state = {}        # source -> item
+errors = {}       # source -> last error message
 art_src = {}      # key -> (url, headers, insecure)
 art_cache = {}    # key -> (bytes, content-type)
 
@@ -76,7 +125,7 @@ def http(url, headers=None, data=None, insecure=False, timeout=6, method=None):
 def register_art(url, headers=None, insecure=False):
     key = hashlib.sha1(url.encode()).hexdigest()[:16]
     with lock:
-        art_src.pop(key, None)  # hinten neu einsortieren: benutzte Eintraege fallen nicht heraus
+        art_src.pop(key, None)  # re-insert at the end so entries in use are not evicted
         art_src[key] = (url, headers or {}, insecure)
         while len(art_src) > 300:
             art_src.pop(next(iter(art_src)))
@@ -101,14 +150,14 @@ def get_art(key):
 
 
 # ------------------------------------------------------------- Caldera
-meta_cache = {}   # Plex-key -> die von plex_info genutzten Felder des Plex-Eintrags
+meta_cache = {}   # Plex key -> the fields of the Plex entry used by plex_info
 META_FIELDS = ("title", "originalTitle", "grandparentTitle", "parentTitle", "parentYear", "year",
                "parentThumb", "thumb", "grandparentThumb", "musicAnalysisVersion",
                "parentRatingKey")
 
 
 def plex_info(m):
-    """Titel, Interpret, Album, Jahr und Cover-Schluessel aus einem Plex-Metadaten-Eintrag."""
+    """Title, artist, album, year and cover key from a Plex metadata entry."""
     art = None
     thumb = m.get("parentThumb") or m.get("thumb") or m.get("grandparentThumb")
     if thumb:
@@ -119,7 +168,7 @@ def plex_info(m):
     return {"title": m.get("title", ""),
             "artist": m.get("originalTitle") or m.get("grandparentTitle", ""),
             "album": m.get("parentTitle", ""), "year": str(year) if year else "", "art": art,
-            # nur fuer klanglich analysierte Titel kennt der Plex-Server aehnliche Titel
+            # the Plex server only knows similar tracks for sonically analysed tracks
             "analysed": bool(m.get("musicAnalysisVersion")),
             "album_key": str(m.get("parentRatingKey") or "")}
 
@@ -133,12 +182,12 @@ def plex_meta(key):
         meta_cache[key] = m
         while len(meta_cache) > 200:
             meta_cache.pop(next(iter(meta_cache)))
-    # jedes Mal neu: haelt die Cover-Quelle registriert, solange der Titel benutzt wird
+    # every time: keeps the cover source registered as long as the track is in use
     return plex_info(m)
 
 
 def prefetch_art(key):
-    """Cover im Hintergrund in den Zwischenspeicher holen, damit das Tablet es sofort bekommt."""
+    """Fetch cover art into the cache in the background so the tablet gets it immediately."""
     if not key:
         return
     with lock:
@@ -153,10 +202,10 @@ def prefetch_art(key):
     threading.Thread(target=run, daemon=True).start()
 
 
-queue_cache = {"id": None, "next": None}   # (Warteschlange, Eintrag, Version) -> naechster Titel
+queue_cache = {"id": None, "next": None}   # (queue, item, version) -> next track
 
 
-album_count = {}   # Album-Schluessel -> Anzahl Titel
+album_count = {}   # album key -> number of tracks
 
 
 def album_tracks(key):
@@ -171,7 +220,7 @@ def album_tracks(key):
 
 
 def plex_next(tl):
-    """Naechsten Titel aus Calderas Warteschlange auf dem Plex-Server holen (nur bei Titelwechsel)."""
+    """Fetch the next track of Caldera's queue from the Plex server (only on track changes)."""
     q, item = tl.get("containerKey") or "", tl.get("playQueueItemID") or ""
     if not q.startswith("/playQueues/") or not item:
         return None
@@ -187,15 +236,15 @@ def plex_next(tl):
         if str(m.get("playQueueItemID")) == item and i + 1 < len(items):
             nxt = plex_info(items[i + 1])
     queue_cache["id"], queue_cache["next"] = ident, nxt
-    # Woraus die Warteschlange besteht: Playlist (Name) oder ein ganzes Album in seiner Reihenfolge
-    # (dann "Titel n von m"); sonst nichts
+    # What the queue consists of: a playlist (its name) or a whole album in its order
+    # (then "Track n of m"); otherwise nothing
     title = mc.get("playQueuePlaylistTitle") or ""
     ctx = "playlist" if title else ""
     cur = next((m for m in items if str(m.get("playQueueItemID")) == item), None)
     total, off = mc.get("playQueueTotalCount") or 0, mc.get("playQueueSelectedItemOffset")
     if not title and not mc.get("playQueueShuffled") and cur and cur.get("parentRatingKey") \
             and off is not None and total and album_tracks(cur["parentRatingKey"]) == total:
-        ctx, title = "album", "Titel %d von %d" % (off + 1, total)
+        ctx, title = "album", tr("track_n_of_m", n=off + 1, m=total)
     queue_cache["playlist"], queue_cache["context"] = title, ctx
     queue_cache["shuffled"] = bool(mc.get("playQueueShuffled"))
     if nxt:
@@ -209,13 +258,13 @@ command_id = itertools.count(1)
 
 
 def caldera_command(name, **params):
-    """Befehl an Calderas Companion-Schnittstelle, z. B. skipNext oder stop."""
+    """Send a command to Caldera's companion interface, e.g. skipNext or stop."""
     q = urllib.parse.urlencode(dict(params, type="music", commandID=next(command_id)))
     http(CALDERA_URL + "/player/playback/%s?%s" % (name, q), CALDERA_HEADERS, timeout=4)
 
 
 def num(v):
-    """Zahl aus einer Geraeteantwort (Millisekunden), 0 wenn sie fehlt oder unlesbar ist."""
+    """Number from a device response (milliseconds); 0 if missing or unreadable."""
     try:
         return max(0, int(float(v)))
     except (TypeError, ValueError):
@@ -223,7 +272,7 @@ def num(v):
 
 
 def caldera_timeline():
-    """Calderas Musik-Timeline (was laeuft, Warteschlange) oder None, wenn nichts laeuft."""
+    """Caldera's music timeline (what is playing, queue), or None if nothing is playing."""
     _, raw, _ = http(CALDERA_URL + "/player/timeline/poll?wait=0&commandID=0",
                      CALDERA_HEADERS, timeout=4)
     tl = None
@@ -237,13 +286,13 @@ def caldera_timeline():
 
 SIMILAR_COUNT = int(os.environ.get("SIMILAR_COUNT", "10"))
 similar_state = {"seed": None}
-similar_added = {}   # Warteschlange -> {eingefuegter Titel: "Interpret – Titel" des Ausgangstitels}
-# X-Plex-Client-Identifier: ohne ihn lehnt der Server das Anlegen einer Warteschlange ab (400)
+similar_added = {}   # queue -> {inserted track: "Artist – Title" of the seed track}
+# X-Plex-Client-Identifier: without it the server refuses to create a queue (400)
 PLEX_HEADERS = {"Accept": "application/json", "X-Plex-Token": PLEX_TOKEN,
                 "X-Plex-Client-Identifier": "nowplaying-display"}
 plex_machine_id = []
-# Zuletzt von Caldera gespielter Titel: Warteschlange, Titel, Stelle (ms) und wie Caldera den
-# Plex-Server anspricht. Damit laesst sich die Wiedergabe auch nach einem Stopp fortsetzen.
+# Track last played by Caldera: queue, track, position (ms) and how Caldera addresses the
+# Plex server. This allows resuming playback even after a stop.
 caldera_last = {}
 
 
@@ -255,10 +304,10 @@ def plex_machine():
 
 
 def caldera_play_media(queue, key, offset=0):
-    """Caldera eine Warteschlange des Plex-Servers ab dem Titel key abspielen lassen."""
+    """Have Caldera play a Plex server queue starting at track key."""
     server = {k: caldera_last[k] for k in ("machineIdentifier", "address", "port", "protocol")
               if caldera_last.get(k)}
-    if len(server) < 4:  # Caldera hat den Server noch nicht gemeldet: aus PLEX_URL ableiten
+    if len(server) < 4:  # Caldera has not reported the server yet: derive it from PLEX_URL
         u = urllib.parse.urlsplit(PLEX_URL)
         server = {"machineIdentifier": plex_machine(), "address": u.hostname,
                   "port": u.port or (443 if u.scheme == "https" else 32400), "protocol": u.scheme}
@@ -266,8 +315,8 @@ def caldera_play_media(queue, key, offset=0):
 
 
 def play_caldera():
-    """Fortsetzen: pausiert -> weiterspielen; gestoppt -> die letzte Warteschlange an der
-    letzten Stelle neu starten (ein Stopp verwirft sie in Caldera, der Plex-Server hat sie noch)."""
+    """Resume: paused -> continue playing; stopped -> restart the last queue at the last
+    position (a stop discards it in Caldera, but the Plex server still has it)."""
     if caldera_timeline() is not None:
         caldera_command("play")
         return True
@@ -281,8 +330,8 @@ playlist_cache = {"t": 0.0, "items": []}
 
 
 def playlists():
-    """Musik-Playlists des Plex-Servers fuer die Auswahl am Tablet: Favoriten zuerst, dann die
-    zuletzt gespielten."""
+    """The Plex server's music playlists for the picker on the tablet: favorites first, then
+    the most recently played."""
     if time.time() - playlist_cache["t"] < 60:
         return playlist_cache["items"]
     _, raw, _ = http(PLEX_URL + "/playlists?playlistType=audio&sort=lastViewedAt:desc",
@@ -304,18 +353,18 @@ def playlists():
     return items
 
 
-shuffle_pref = [True]   # letzte Wahl am Tablet; so starten auch neu gewaehlte Plex-Playlists
+shuffle_pref = [True]   # last choice on the tablet; newly chosen Plex playlists start this way too
 
 
 def shuffle_caldera():
-    """Zufallswiedergabe der laufenden Warteschlange ein- oder ausschalten. Der laufende Titel
-    spielt weiter, nur die Reihenfolge der folgenden aendert sich."""
+    """Toggle shuffle for the current queue. The current track keeps playing; only the
+    order of the following tracks changes."""
     tl = caldera_timeline()
     q = (tl.get("containerKey") or "") if tl is not None else ""
     if not q.startswith("/playQueues/"):
-        shuffle_pref[0] = not shuffle_pref[0]  # nichts laeuft: gilt fuer die naechste Playlist
+        shuffle_pref[0] = not shuffle_pref[0]  # nothing playing: applies to the next playlist
         return True
-    plex_next(tl)  # Stand der Warteschlange sicher aktuell
+    plex_next(tl)  # make sure the queue state is current
     on = not queue_cache.get("shuffled")
     http(PLEX_URL + q + ("/shuffle" if on else "/unshuffle"), PLEX_HEADERS, data=b"", timeout=10, method="PUT")
     caldera_command("refreshPlayQueue", playQueueID=q.rsplit("/", 1)[1])
@@ -325,7 +374,7 @@ def shuffle_caldera():
 
 
 def play_album_caldera():
-    """Das Album des laufenden Titels von Titel 1 an spielen (ersetzt die Warteschlange)."""
+    """Play the album of the current track from track 1 (replaces the queue)."""
     tl = caldera_timeline()
     key = tl is not None and (tl.get("key") or "/library/metadata/" + (tl.get("ratingKey") or ""))
     album = plex_meta(key).get("album_key") if key else ""
@@ -343,8 +392,8 @@ def play_album_caldera():
 
 
 def start_playlist(pid):
-    """Playlist in Caldera starten (gemischt, wenn die Zufallswiedergabe zuletzt an war).
-    Nur Playlists aus der Auswahlliste."""
+    """Start a playlist in Caldera (shuffled if shuffle was last on).
+    Only playlists from the picker list."""
     if pid not in [p["id"] for p in playlists()]:
         return False
     q = urllib.parse.urlencode({"type": "audio", "playlistID": pid, "shuffle": 1 if shuffle_pref[0] else 0,
@@ -356,13 +405,13 @@ def start_playlist(pid):
         return False
     first = next((t for t in tracks if t.get("playQueueItemID") == sel), tracks[0])
     caldera_play_media("/playQueues/%s" % mc["playQueueID"], first["key"])
-    playlist_cache["t"] = 0.0  # Reihenfolge "zuletzt gespielt" aendert sich
+    playlist_cache["t"] = 0.0  # the "recently played" order changes
     return True
 
 
 def similar_caldera():
-    """"Mehr davon": klanglich aehnliche Titel (Klanganalyse des Plex-Servers) direkt hinter
-    dem laufenden Stueck in Calderas Warteschlange einfuegen. Der laufende Titel spielt weiter."""
+    """"More like this": insert sonically similar tracks (Plex server's sonic analysis) right
+    after the current track in Caldera's queue. The current track keeps playing."""
     tl = caldera_timeline()
     if tl is None:
         return False
@@ -370,7 +419,7 @@ def similar_caldera():
     if not seed or not queue.startswith("/playQueues/"):
         return False
     if similar_state["seed"] == (queue, seed):
-        return True  # fuer diesen Titel schon eingefuegt: zweites Tippen fuegt nichts doppelt ein
+        return True  # already inserted for this track: a second tap adds no duplicates
     plex = PLEX_HEADERS
     _, raw, _ = http(PLEX_URL + "/library/metadata/%s/nearest?%s" % (
         seed, urllib.parse.urlencode({"limit": SIMILAR_COUNT + 1, "maxDistance": 0.25})), plex, timeout=10)
@@ -386,11 +435,11 @@ def similar_caldera():
     similar_state["seed"] = (queue, seed)
     try:
         m = plex_meta("/library/metadata/" + seed)
-        label = " \u2013 ".join(x for x in (m.get("artist"), m.get("title")) if x)
+        label = " – ".join(x for x in (m.get("artist"), m.get("title")) if x)
     except Exception:  # noqa: BLE001
         label = ""
     similar_added.setdefault(queue, {}).update({i: label for i in ids})
-    queue_cache["id"] = None  # Vorschau des naechsten Titels neu holen
+    queue_cache["id"] = None  # refetch the next-track preview
     return True
 
 
@@ -412,7 +461,7 @@ def poll_caldera():
                 stop="playPause" in can, play="playPause" in can,
                 time=num(tl.get("time")), duration=num(tl.get("duration")),
                 similar=(tl.get("containerKey") or "").startswith("/playQueues/"))
-    # Titel ohne Klanganalyse: der Knopf bleibt sichtbar, aber ausgegraut ("similar_off")
+    # Tracks without sonic analysis: the button stays visible but greyed out ("similar_off")
     item["similar_off"] = item["similar"] and not item.get("analysed")
     item["similar"] = item["similar"] and item.pop("analysed", False)
     item["albumplay"] = bool(item.get("album_key"))
@@ -422,34 +471,34 @@ def poll_caldera():
         known = item["next"] is not None or queue_cache.get("id")
         item["playlist"] = queue_cache.get("playlist", "") if known else ""
         item["context"] = queue_cache.get("context", "") if known else ""
-        item["shuffle"] = bool(known)   # Zufallswiedergabe umschaltbar
+        item["shuffle"] = bool(known)   # shuffle can be toggled
         item["shuffled"] = bool(known and queue_cache.get("shuffled"))
-        # von "mehr davon" eingefuegte Titel stammen nicht aus der Playlist: statt des Namens
-        # "Song Radio" mit dem Titel zeigen, auf den sich die Vorschlaege beziehen
+        # tracks inserted by "more like this" are not from the playlist: instead of its name,
+        # show "Song Radio" with the track the suggestions are based on
         added = similar_added.get(tl.get("containerKey") or "", {})
         if (tl.get("ratingKey") or "") in added:
             label = added[tl.get("ratingKey")]
-            item["playlist"] = "Song Radio" + (": " + label if label else "")
+            item["playlist"] = tr("song_radio") + (": " + label if label else "")
             item["context"] = "radio"
-    except Exception:  # noqa: BLE001 – ohne Vorschau geht es auch
+    except Exception:  # noqa: BLE001 – works without the preview too
         item["next"] = None
     return item
 
 
-# ------------------------------------------- Spotify-Web-Schnittstelle
-# librespot laesst sich nicht lokal steuern. Umschalten zu Spotify, Skip und Stopp gehen
-# deshalb ueber die Web-Schnittstelle von Spotify (Premium noetig). Einrichtung einmalig mit
-# np-spotify-login: eigene App bei developer.spotify.com (SPOTIFY_CLIENT_ID) und Anmeldung;
-# das Ergebnis liegt als spotify.json im Zustandsverzeichnis des Dienstes.
+# ------------------------------------------------ Spotify Web API
+# librespot cannot be controlled locally. Switching to Spotify, skip and stop therefore go
+# through the Spotify Web API (Premium required). One-time setup with np-spotify-login:
+# your own app at developer.spotify.com (SPOTIFY_CLIENT_ID) and sign-in; the result is
+# stored as spotify.json in the service's state directory.
 SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_DEVICE = os.environ.get("SPOTIFY_DEVICE", "PlexAmpPi")
 STATE_DIR = os.environ.get("STATE_DIRECTORY", "").split(":")[0] or os.path.dirname(os.path.abspath(__file__))
 SPOTIFY_TOKEN_FILE = os.path.join(STATE_DIR, "spotify.json")
 
-# Playlist-Auswahl am Tablet: so viele Eintraege, Favoriten zuerst, dann die zuletzt gespielten
+# Playlist picker on the tablet: this many entries, favorites first, then the most recently played
 PLAYLIST_COUNT = int(os.environ.get("PLAYLIST_COUNT", "10"))
 FAVORITES_FILE = os.path.join(STATE_DIR, "favorites.json")
-favorites = {"caldera": [], "spotify": []}   # Quelle -> Playlist-Kennungen, in der Reihenfolge des Markierens
+favorites = {"caldera": [], "spotify": []}   # source -> playlist IDs, in the order they were marked
 
 
 def favorites_load():
@@ -462,11 +511,11 @@ def favorites_load():
         pass
 
 
-# Einstellungen der Anzeige, die Neuladen und Neustart ueberstehen. "view": Ansicht bei Plex und
-# Spotify, am Tablet mit dem dreiteiligen Ansicht-Schalter gewaehlt:
-#   full  = alle Infos mit LED-Leiste
-#   big   = ohne Leiste, grosses Cover mit Infos (wie die Ansicht des WiiM)
-#   cover = nur das Cover
+# Display settings that survive reloads and restarts. "view": layout for Plex and Spotify,
+# chosen on the tablet with the three-way view switch:
+#   full  = all info with the LED bar
+#   big   = no bar, large cover with info (like the WiiM view)
+#   cover = cover only
 VIEWS = ("full", "big", "cover")
 SETTINGS_FILE = os.path.join(STATE_DIR, "settings.json")
 settings = {"view": "full"}
@@ -483,12 +532,12 @@ def settings_load():
 
 
 def set_view(view):
-    """Ansicht waehlen (eine aus VIEWS); wird sofort gespeichert. False bei unbekannter Ansicht."""
+    """Choose a view (one of VIEWS); saved immediately. False for an unknown view."""
     if view not in VIEWS:
         return False
     with lock:
         settings["view"] = view
-        tmp = SETTINGS_FILE + ".neu"
+        tmp = SETTINGS_FILE + ".new"
         with open(tmp, "w") as f:
             json.dump(settings, f)
         os.replace(tmp, SETTINGS_FILE)
@@ -496,13 +545,13 @@ def set_view(view):
 
 
 def set_favorite(source, pid, on):
-    """Playlist als Favorit markieren oder die Markierung entfernen; wird sofort gespeichert."""
+    """Mark a playlist as a favorite or remove the mark; saved immediately."""
     with lock:
         cur = [x for x in favorites[source] if x != pid]
         if on:
             cur.append(pid)
         favorites[source] = cur
-        tmp = FAVORITES_FILE + ".neu"
+        tmp = FAVORITES_FILE + ".new"
         with open(tmp, "w") as f:
             json.dump(favorites, f)
         os.replace(tmp, FAVORITES_FILE)
@@ -524,7 +573,7 @@ def spotify_ready():
 
 
 def spotify_access():
-    """Gueltiges Zugriffstoken; wird mit dem gespeicherten Refresh-Token erneuert."""
+    """Valid access token; renewed with the stored refresh token."""
     with spotify_lock:
         if spotify_auth["access"] and time.time() < spotify_auth["expires"] - 60:
             return spotify_auth["access"]
@@ -536,9 +585,9 @@ def spotify_access():
         spotify_auth["access"] = tok["access_token"]
         spotify_auth["expires"] = time.time() + float(tok.get("expires_in", 3600))
         new = tok.get("refresh_token")
-        if new and new != spotify_auth["refresh"]:  # Spotify kann das Refresh-Token austauschen
+        if new and new != spotify_auth["refresh"]:  # Spotify may rotate the refresh token
             spotify_auth["refresh"] = new
-            tmp = SPOTIFY_TOKEN_FILE + ".neu"
+            tmp = SPOTIFY_TOKEN_FILE + ".new"
             with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
                 json.dump({"refresh_token": new}, f)
             os.replace(tmp, SPOTIFY_TOKEN_FILE)
@@ -554,14 +603,14 @@ def spotify_api(method, path, body=None):
     elif method in ("PUT", "POST"):
         data = b""
     _, raw, _ = http("https://api.spotify.com/v1" + path, headers, data=data, timeout=10, method=method)
-    try:  # die Player-Befehle antworten bei Erfolg teils leer, teils mit Text statt JSON
+    try:  # on success the player commands reply sometimes empty, sometimes with text instead of JSON
         return json.loads(raw) if raw else {}
     except ValueError:
         return {}
 
 
 def spotify_device():
-    """Das Spotify-Connect-Geraet auf diesem Pi im Spotify-Konto (id, is_active ...), None wenn es dort fehlt."""
+    """This Pi's Spotify Connect device in the Spotify account (id, is_active ...), None if it is missing there."""
     for d in spotify_api("GET", "/me/player/devices").get("devices") or []:
         if (d.get("name") or "").lower() == SPOTIFY_DEVICE.lower():
             return d
@@ -569,9 +618,9 @@ def spotify_device():
 
 
 def spotify_play():
-    """Spotify auf diesem Pi (weiter)spielen. Ist der Pi noch nicht das aktive Geraet des Kontos,
-    wird die Wiedergabe hierher geholt; ein ausdrueckliches "play" startet sie in jedem Fall
-    (das Holen allein startet nicht, wenn der Pi schon das aktive Geraet ist)."""
+    """Play (or resume) Spotify on this Pi. If the Pi is not yet the account's active device,
+    playback is transferred here; an explicit "play" starts it in any case
+    (the transfer alone does not start playback if the Pi already is the active device)."""
     dev = spotify_device()
     if not dev:
         return False
@@ -581,13 +630,13 @@ def spotify_play():
     try:
         spotify_api("PUT", "/me/player/play?device_id=" + urllib.parse.quote(dev["id"]))
     except urllib.error.HTTPError as e:
-        if e.code != 403:  # 403 = spielt bereits
+        if e.code != 403:  # 403 = already playing
             raise
     return True
 
 
 def shuffle_spotify():
-    """Zufallswiedergabe bei Spotify ein- oder ausschalten."""
+    """Toggle shuffle on Spotify."""
     dev = spotify_device()
     on = not spotify_api("GET", "/me/player").get("shuffle_state")
     spotify_api("PUT", "/me/player/shuffle?state=%s%s" % (
@@ -600,7 +649,7 @@ def shuffle_spotify():
 
 
 def play_album_spotify():
-    """Das Album des laufenden Spotify-Titels von Titel 1 an spielen."""
+    """Play the album of the current Spotify track from track 1."""
     dev = spotify_device()
     album = ((spotify_api("GET", "/me/player").get("item") or {}).get("album") or {}).get("uri")
     if not dev or not album:
@@ -616,13 +665,13 @@ def spotify_command(method, name):
 
 
 spotify_pl_cache = {"t": 0.0, "items": []}
-spotify_pl_info = {}   # uri -> Name, Bild, Anzahl (aendert sich selten, spart Abfragen)
+spotify_pl_info = {}   # uri -> name, image, count (rarely changes, saves requests)
 
 
 def spotify_playlists():
-    """Spotify-Playlists fuer die Auswahl am Tablet: Favoriten zuerst, dann die zuletzt gehoerten
-    (aus dem Hoerverlauf des Kontos), aufgefuellt mit den eigenen Playlists. Playlists, deren
-    Angaben Spotify nicht herausgibt, werden ausgelassen."""
+    """Spotify playlists for the picker on the tablet: favorites first, then the most recently
+    played (from the account's listening history), filled up with the user's own playlists.
+    Playlists whose details Spotify does not disclose are skipped."""
     if time.time() - spotify_pl_cache["t"] < 60:
         return spotify_pl_cache["items"]
     favs = list(favorites["spotify"])
@@ -638,12 +687,12 @@ def spotify_playlists():
                                 "count": ((pl.get("tracks") or pl.get("items") or {}).get("total")) or 0}
     try:
         add(spotify_api("GET", "/me/player").get("context"))
-    except Exception:  # noqa: BLE001 – nichts aktiv
+    except Exception:  # noqa: BLE001 – nothing active
         pass
     try:
         for it in spotify_api("GET", "/me/player/recently-played?limit=50").get("items") or []:
             add(it.get("context"))
-    except Exception:  # noqa: BLE001 – Hoerverlauf nicht freigegeben
+    except Exception:  # noqa: BLE001 – listening history not permitted
         pass
     try:
         for pl in spotify_api("GET", "/me/playlists?limit=30").get("items") or []:
@@ -660,7 +709,7 @@ def spotify_playlists():
         if uri not in spotify_pl_info:
             try:
                 info(uri, spotify_api("GET", "/playlists/" + uri.rsplit(":", 1)[1]))
-            except Exception:  # noqa: BLE001 – z. B. von Spotify erstellte Playlists
+            except Exception:  # noqa: BLE001 – e.g. playlists created by Spotify
                 continue
         i = spotify_pl_info[uri]
         if i["title"]:
@@ -671,7 +720,7 @@ def spotify_playlists():
 
 
 def start_spotify_playlist(uri):
-    """Spotify-Playlist auf diesem Pi starten. Nur Playlists aus der Auswahlliste."""
+    """Start a Spotify playlist on this Pi. Only playlists from the picker list."""
     if uri not in [p["id"] for p in spotify_playlists()]:
         return False
     dev = spotify_device()
@@ -683,12 +732,12 @@ def start_spotify_playlist(uri):
 
 
 def playlist_source():
-    """Wessen Playlists das Tablet gerade anbietet: "spotify", "caldera" oder None.
-    Eine Playlist zu starten ersetzt, was die Quelle spielt; deshalb nie die einer anderen
-    Quelle anbieten, solange etwas laeuft."""
+    """Whose playlists the tablet currently offers: "spotify", "caldera" or None.
+    Starting a playlist replaces what the source is playing, so never offer those of
+    another source while something is playing."""
     c = shown()
     if c.get("source") == "wiim":
-        return None  # Ansicht des WiiM: nur der Umschalter, keine Playlists
+        return None  # WiiM view: only the switch, no playlists
     if c.get("source") == "spotify":
         return "spotify" if spotify_ready() else None
     if "caldera" in SOURCES and (c.get("source") in ("caldera", "idle") or not c.get("playing")):
@@ -697,9 +746,9 @@ def playlist_source():
 
 
 def wait_card_free(timeout=10.0):
-    """Warten, bis kein Programm mehr die Soundkarte offen hat. Caldera gibt sie erst 5 s nach
-    der Pause frei, librespot kurz nach der Pause. Startet der andere Player vorher, bekommt er
-    "Geraet belegt": Caldera bleibt dann stumm, librespot beendet sich."""
+    """Wait until no program has the sound card open. Caldera releases it only 5 s after
+    pausing, librespot shortly after pausing. If the other player starts earlier, it gets
+    "device busy": Caldera then stays silent, librespot exits."""
     end = time.time() + timeout
     while time.time() < end:
         busy = False
@@ -716,33 +765,33 @@ def wait_card_free(timeout=10.0):
 
 
 def note(text):
-    """Zeile ins Protokoll (journalctl -u nowplaying). Haelt fest, wer die Wiedergabe steuert:
-    Caldera und Spotify nennen den Absender eines Befehls nicht."""
+    """Write a line to the log (journalctl -u nowplaying). Records who controls playback:
+    Caldera and Spotify do not report the sender of a command."""
     print(text, flush=True)
 
 
-switching = threading.Lock()   # ein Wechsel der Quelle zur Zeit
+switching = threading.Lock()   # one source switch at a time
 last_switch = [0.0]
 
 
 def caldera_resumable():
-    """Kann Plex gleich weiterspielen? Caldera haelt einen Titel bereit oder die letzte Warteschlange ist bekannt."""
+    """Can Plex resume right away? Caldera holds a track, or the last queue is known."""
     with lock:
         held = bool(state.get("caldera"))
     return "caldera" in SOURCES and (held or bool(caldera_last.get("queue") and caldera_last.get("key")))
 
 
 def switch_source():
-    """Umschalter Plex <-> Spotify: die laufende Quelle anhalten, die andere (weiter)spielen."""
+    """Plex <-> Spotify switch: pause the current source, play (or resume) the other."""
     with switching:
         try:
             if shown().get("source") == "wiim":
-                # Musik direkt am WiiM: den WiiM auf den optischen Eingang (Pi) stellen, Plex spielt weiter
+                # Music directly on the WiiM: set the WiiM to the optical input (Pi), Plex resumes
                 if not caldera_resumable():
                     return False
                 try:
                     wiim_command("pause")
-                except Exception:  # noqa: BLE001 – z. B. Radio laesst sich nicht anhalten
+                except Exception:  # noqa: BLE001 – e.g. radio cannot be paused
                     pass
                 wiim_command("switchmode:optical")
                 return play_caldera()
@@ -751,7 +800,7 @@ def switch_source():
                     return False
                 try:
                     spotify_command("PUT", "pause")
-                except Exception:  # noqa: BLE001 – spielt schon nicht mehr
+                except Exception:  # noqa: BLE001 – already stopped playing
                     pass
                 wait_card_free()
                 return play_caldera()
@@ -767,13 +816,13 @@ def switch_source():
             last_switch[0] = time.time()
 
 
-pi_playing = [None]   # spielte beim letzten Blick Plex oder Spotify auf dem Pi? (None: noch unbekannt)
+pi_playing = [None]   # was Plex or Spotify playing on the Pi at the last check? (None: not known yet)
 
 
 def wiim_follow():
-    """Beginnt Plex oder Spotify auf dem Pi zu spielen, waehrend der WiiM nicht auf dem optischen
-    Eingang steht (eigene Musik: Radio, AirPlay ..., auch pausiert), bliebe der Pi stumm: den WiiM
-    umstellen. Nur im Moment des Starts; wer danach am WiiM etwas anderes waehlt, behaelt es."""
+    """If Plex or Spotify starts playing on the Pi while the WiiM is not on the optical input
+    (its own music: radio, AirPlay ..., even paused), the Pi would be silent: switch the WiiM
+    over. Only at the moment playback starts; whoever picks something else on the WiiM later keeps it."""
     with lock:
         now_playing = any((state.get(k) or {}).get("playing") for k in ("caldera", "spotify"))
         started = now_playing and pi_playing[0] is False
@@ -783,20 +832,20 @@ def wiim_follow():
     try:
         if wiim_mode() == WIIM_OPTICAL:
             return
-        note("Automatisch: Musik auf dem Pi gestartet, WiiM wird auf den optischen Eingang gestellt")
+        note("Automatic: music started on the Pi, switching the WiiM to the optical input")
         wiim_command("switchmode:optical")
-    except Exception as e:  # noqa: BLE001 – WiiM nicht erreichbar
+    except Exception as e:  # noqa: BLE001 – WiiM unreachable
         with lock:
-            errors["wiim-eingang"] = f"{type(e).__name__}: {e}"
+            errors["wiim-input"] = f"{type(e).__name__}: {e}"
 
 
-wiim_seen = [False]   # erster Blick auf den WiiM nach dem Start: nichts anhalten
+wiim_seen = [False]   # first look at the WiiM after startup: don't pause anything
 
 
 def wiim_started(prev, item):
-    """Umgekehrt: Beginnt der WiiM seine eigene Musik zu spielen (z. B. Spotify Connect am WiiM),
-    waehrend Plex oder Spotify auf dem Pi laeuft, ist der Pi nicht mehr zu hoeren: ihn anhalten,
-    damit auch das Tablet zum WiiM wechselt. Nur im Moment des Starts am WiiM."""
+    """The reverse: if the WiiM starts playing its own music (e.g. Spotify Connect on the WiiM)
+    while Plex or Spotify is playing on the Pi, the Pi can no longer be heard: pause it so the
+    tablet switches to the WiiM as well. Only at the moment playback starts on the WiiM."""
     first, wiim_seen[0] = not wiim_seen[0], True
     began = bool(item and item.get("playing")) and not (prev and prev.get("playing"))
     if first or not began or switching.locked():
@@ -804,20 +853,20 @@ def wiim_started(prev, item):
     with lock:
         busy = [k for k in ("caldera", "spotify") if (state.get(k) or {}).get("playing")]
     for k in busy:
-        note(f"Automatisch: Musik am WiiM gestartet, {'Plex' if k == 'caldera' else 'Spotify'} auf dem Pi wird angehalten")
+        note(f"Automatic: music started on the WiiM, pausing {'Plex' if k == 'caldera' else 'Spotify'} on the Pi")
         try:
             if k == "caldera":
                 caldera_command("pause")
             else:
                 spotify_command("PUT", "pause")
-        except Exception as e:  # noqa: BLE001 – Quelle nicht erreichbar
+        except Exception as e:  # noqa: BLE001 – source unreachable
             with lock:
-                errors["wiim-vorrang"] = f"{type(e).__name__}: {e}"
+                errors["wiim-priority"] = f"{type(e).__name__}: {e}"
 
 
 def check_conflict():
-    """Es darf immer nur eine Quelle spielen. Startet jemand Spotify, waehrend Plex laeuft (oder
-    umgekehrt, z. B. vom Handy aus), gewinnt die zuletzt gestartete; die andere wird angehalten."""
+    """Only one source may play at a time. If someone starts Spotify while Plex is playing (or
+    vice versa, e.g. from a phone), the most recently started one wins; the other is paused."""
     if "wiim" in SOURCES:
         wiim_follow()
     with lock:
@@ -827,7 +876,7 @@ def check_conflict():
     if not both or switching.locked() or time.time() - last_switch[0] < 15:
         return
     if winner == "caldera" and not spotify_ready():
-        return  # ohne Web-Schnittstelle laesst sich Spotify nicht anhalten
+        return  # without the Web API Spotify cannot be paused
     threading.Thread(target=resolve_conflict, args=(winner,), daemon=True).start()
 
 
@@ -835,15 +884,15 @@ def resolve_conflict(winner):
     if not switching.acquire(blocking=False):
         return
     loser = "Plex" if winner == "spotify" else "Spotify"
-    note(f"Automatisch (immer nur eine Quelle): {loser} wird angehalten, {winner} spielt")
+    note(f"Automatic (only one source at a time): pausing {loser}, {winner} keeps playing")
     try:
         if winner == "spotify":
             tl = caldera_timeline()
             if tl is not None and tl.get("state") != "paused":
                 caldera_command("pause")
             wait_card_free()
-            # War die Soundkarte belegt, hat sich librespot beendet und startet gerade neu:
-            # warten, bis das Geraet wieder im Konto ist, dann die Wiedergabe dorthin holen
+            # If the sound card was busy, librespot exited and is restarting right now:
+            # wait until the device is back in the account, then transfer playback to it
             for _ in range(15):
                 if not spotify_ready():
                     break
@@ -859,13 +908,13 @@ def resolve_conflict(winner):
             except Exception:  # noqa: BLE001
                 pass
             wait_card_free()
-            # Caldera hat die Soundkarte beim Start nicht bekommen und bleibt stumm: neu ansetzen
+            # Caldera did not get the sound card when it started and stays silent: restart it
             caldera_command("pause")
             time.sleep(0.5)
             caldera_command("play")
     except Exception as e:  # noqa: BLE001
         with lock:
-            errors["umschalten"] = f"{type(e).__name__}: {e}"
+            errors["switch"] = f"{type(e).__name__}: {e}"
     finally:
         last_switch[0] = time.time()
         switching.release()
@@ -873,8 +922,8 @@ def resolve_conflict(winner):
 
 # ------------------------------------------- Spotify Connect (librespot)
 def best_cover(covers):
-    """Groesstes Cover waehlen. librespot liefert die Groessen nicht verlaesslich sortiert;
-    Spotify-Bild-URLs tragen die Groesse im Namen (0000b273 = 640 px Album, 0000ba8a = 640 px Podcast)."""
+    """Pick the largest cover. librespot does not reliably sort the sizes;
+    Spotify image URLs carry the size in the name (0000b273 = 640 px album, 0000ba8a = 640 px podcast)."""
     for mark in ("0000b273", "0000ba8a"):
         for c in covers:
             if mark in c:
@@ -883,8 +932,8 @@ def best_cover(covers):
 
 
 def watch_librespot():
-    """librespot meldet sich nur bei Ereignissen. Endet der Prozess ohne "stopped"
-    (Absturz, Neustart von Raspotify), wuerde der letzte Titel fuer immer als laufend gelten."""
+    """librespot only reports events. If the process ends without "stopped"
+    (crash, Raspotify restart), the last track would count as playing forever."""
     while True:
         time.sleep(5)
         with lock:
@@ -895,10 +944,10 @@ def watch_librespot():
 
 
 def librespot_event(ev):
-    """Ereignis von np-librespot-event verarbeiten."""
+    """Handle an event from np-librespot-event."""
     kind = ev.get("event", "")
     now = time.time()
-    # Prozessnummer von librespot; nur merken, wenn wir den Prozess auch sehen koennen
+    # librespot's process ID; only remember it if we can actually see the process
     pid = ev.get("pid")
     if not (isinstance(pid, int) and pid > 1 and os.path.exists(f"/proc/{pid}")):
         pid = None
@@ -916,7 +965,7 @@ def librespot_event(ev):
                     "album": ev.get("album", ""), "art": None, "track": ev.get("track_id", ""),
                     "pid": pid or (cur and cur.get("pid"))}
             if covers:
-                item["art"] = best_cover(covers)  # Registrierung ausserhalb der Sperre
+                item["art"] = best_cover(covers)  # registered outside the lock
             item["since"] = now
             item["seen"] = now
             state["spotify"] = item
@@ -929,7 +978,7 @@ def librespot_event(ev):
             if pid:
                 cur["pid"] = pid
         elif kind == "playing":
-            # Wiedergabe laeuft, Titelangaben folgen mit track_changed
+            # playback is running, track details follow with track_changed
             state["spotify"] = {"source": "spotify", "device": "PlexAmpPi", "push": True,
                                 "playing": True, "title": "", "artist": "", "album": "",
                                 "art": None, "since": now, "seen": now, "pid": pid}
@@ -949,9 +998,9 @@ def librespot_event(ev):
 
 
 def spotify_sync():
-    """Alle 10 s mit dem Spotify-Konto abgleichen, ob auf diesem Pi gespielt wird. librespot
-    meldet nur Ereignisse; nach einem Neustart dieses Servers oder einem verpassten Ereignis
-    wuesste er sonst nicht, dass Spotify laeuft (wichtig fuer "immer nur eine Quelle")."""
+    """Every 10 s, check with the Spotify account whether this Pi is playing. librespot only
+    reports events; after a restart of this server or a missed event it would otherwise
+    not know that Spotify is playing (important for "only one source at a time")."""
     while True:
         time.sleep(10)
         if not spotify_ready():
@@ -967,31 +1016,31 @@ def spotify_sync():
                     if cur:
                         cur.update(playing=True, seen=now)
                     else:
-                        # "since" 0: lief schon vorher; eine eben gestartete andere Quelle gilt als neuer
+                        # "since" 0: was already playing before; another source just started counts as newer
                         cur = state["spotify"] = {
                             "source": "spotify", "device": "PlexAmpPi", "push": True, "playing": True,
                             "title": "", "artist": "", "album": "", "art": None,
                             "since": 0.0, "seen": now, "pid": None}
                     found = cur
                 elif cur and cur.get("playing") and not playing and now - cur.get("seen", 0) > 15:
-                    cur.update(playing=False, since=now)  # laeuft laut Konto nicht mehr hier
+                    cur.update(playing=False, since=now)  # according to the account no longer playing here
             if found:
                 spotify_enrich(found)
                 check_conflict()
-        except Exception:  # noqa: BLE001 – Spotify nicht erreichbar
+        except Exception:  # noqa: BLE001 – Spotify unreachable
             pass
 
 
 def spotify_enrich(item):
-    """Ueber die Web-Schnittstelle ergaenzen, was librespot nicht meldet: den Namen der Playlist
-    und, falls noch leer (Server neu gestartet, Wiedergabe fortgesetzt), Titel, Interpret, Cover."""
-    time.sleep(1.5)  # Spotify braucht einen Moment, bis der neue Stand abrufbar ist
+    """Use the Web API to add what librespot does not report: the playlist name and, if still
+    empty (server restarted, playback resumed), title, artist and cover."""
+    time.sleep(1.5)  # Spotify needs a moment before the new state can be fetched
     try:
         p = spotify_api("GET", "/me/player")
         ctx, name, kind = p.get("context") or {}, "", ""
-        tr = p.get("item") or {}
-        if ctx.get("type") == "album" and tr.get("track_number") and (tr.get("album") or {}).get("total_tracks"):
-            kind, name = "album", "Titel %d von %d" % (tr["track_number"], tr["album"]["total_tracks"])
+        tr_ = p.get("item") or {}
+        if ctx.get("type") == "album" and tr_.get("track_number") and (tr_.get("album") or {}).get("total_tracks"):
+            kind, name = "album", tr("track_n_of_m", n=tr_["track_number"], m=tr_["album"]["total_tracks"])
         if ctx.get("type") == "playlist" and ctx.get("uri"):
             kind = "playlist"
             uri = ctx["uri"]
@@ -1017,21 +1066,21 @@ def spotify_enrich(item):
                 item["art"] = item.get("art") or art
         if art:
             prefetch_art(art)
-    except Exception:  # noqa: BLE001 – ohne Zusatzangaben geht es auch
+    except Exception:  # noqa: BLE001 – works without the extra details too
         pass
 
 
 # ---------------------------------------------------------------- WiiM
 def wiim_command(name):
-    """Befehl an den WiiM, z. B. next oder stop."""
+    """Send a command to the WiiM, e.g. next or stop."""
     http(f"https://{WIIM_HOST}/httpapi.asp?command=setPlayerCmd:{name}", insecure=True)
 
 
-WIIM_OPTICAL = "43"   # "mode" des WiiM, wenn er den optischen Eingang (Pi) spielt
+WIIM_OPTICAL = "43"   # the WiiM's "mode" when it plays the optical input (Pi)
 
 
 def wiim_mode():
-    """Eingang, auf dem der WiiM gerade steht (Feld "mode" seines Status)."""
+    """Input the WiiM is currently set to (the "mode" field of its status)."""
     _, raw, _ = http(f"https://{WIIM_HOST}/httpapi.asp?command=getPlayerStatus", insecure=True)
     return str(json.loads(raw).get("mode"))
 
@@ -1052,7 +1101,7 @@ def poll_wiim():
     title = clean(md.get("title"))
     art = clean(md.get("albumArtURI"))
     if not title and not art.startswith("http"):
-        return None  # z. B. optischer Eingang (Pi) ohne Metadaten
+        return None  # e.g. optical input (Pi) without metadata
     return {
         "source": "wiim",
         "device": "WiiM",
@@ -1095,7 +1144,7 @@ def worker(name, fn):
                 check_conflict()
             elif name == "wiim":
                 wiim_started(prev, item)
-        except Exception as e:  # noqa: BLE001 – Quelle darf nie den Server killen
+        except Exception as e:  # noqa: BLE001 – a source must never kill the server
             with lock:
                 errors[name] = f"{type(e).__name__}: {e}"
         time.sleep(INTERVAL[name])
@@ -1105,8 +1154,8 @@ last_shown = {"item": None, "t": 0.0}
 
 
 def current():
-    """Was das Tablet zeigen soll. Laeuft nichts mehr (Pause, Stopp, Quelle weg),
-    bleibt das letzte Cover noch OFF_DELAY Sekunden abgedunkelt stehen."""
+    """What the tablet should show. When nothing is playing any more (pause, stop, source gone),
+    the last cover stays up dimmed for OFF_DELAY seconds."""
     now = time.time()
     with lock:
         items = [state.get(k) for k in ("caldera", "spotify", "wiim")]
@@ -1115,12 +1164,12 @@ def current():
         if i["playing"]:
             last_shown["item"], last_shown["t"] = i, now
             return i
-    # Pausiert und fortsetzbar: bleibt PAUSE_DELAY stehen, das Tablet zeigt den Play-Knopf
+    # Paused and resumable: stays up for PAUSE_DELAY, the tablet shows the Play button
     paused = [i for i in items if (i.get("play") or (i["source"] == "spotify" and spotify_ready()))
               and now - i["since"] < PAUSE_DELAY]
     if paused:
         p = max(paused, key=lambda i: i["since"])
-        # Die uebrigen Knoepfe gehen in der Pause nicht, bleiben am Tablet aber ausgegraut stehen
+        # The other buttons don't work while paused but stay on the tablet, greyed out
         dimmed = [k for k in ("albumplay", "similar", "prev", "skip") if p.get(k)]
         if p.get("similar_off") and "similar" not in dimmed:
             dimmed.append("similar")
@@ -1133,25 +1182,25 @@ def current():
 
 
 def shown():
-    """Wie current(), aber ohne Musik bleibt der zuletzt gespielte Titel stehen (pausiert,
-    "idle": True). Das Display ist dann aus; wird das Tablet von Hand geweckt, zeigt es den
-    letzten Titel mit Play-Knopf, und die Wiedergabe laesst sich dort fortsetzen."""
+    """Like current(), but without music the last played track stays (paused,
+    "idle": True). The display is off then; if the tablet is woken by hand, it shows the
+    last track with a Play button, and playback can be resumed from there."""
     c = current()
     last = last_shown["item"]
     if c["source"] == "idle" and last:
         c = dict(last, playing=False, idle=True, skip=False, prev=False, stop=False, similar=False,
                  similar_off=False, albumplay=False)
-        if c["source"] == "caldera":  # gestoppt: der Schalter stellt ein, wie die naechste Playlist startet
+        if c["source"] == "caldera":  # stopped: the toggle sets how the next playlist starts
             c.update(shuffle=True, shuffled=shuffle_pref[0])
-    if c["source"] == "spotify" and spotify_ready():  # ueber die Web-Schnittstelle steuerbar
+    if c["source"] == "spotify" and spotify_ready():  # controllable through the Web API
         live = bool(c.get("playing"))
         c = dict(c, play=True, stop=live, skip=live, prev=live, albumplay=live, shuffle=True)
     return c
 
 
-# Bedienung vom Tablet: nur Quellen, die sich steuern lassen. Spotify Connect auf dem Pi
-# (librespot) hat keine lokale Steuerung; es geht nur mit eingerichteter Web-Schnittstelle.
-# "stop" haelt die Wiedergabe an (Pause), damit "play" an derselben Stelle weiterspielen kann.
+# Controls from the tablet: only for sources that can be controlled. Spotify Connect on the Pi
+# (librespot) has no local control; it only works with the Web API set up.
+# "stop" pauses playback so that "play" can resume at the same position.
 CONTROL = {
     "skip": {"caldera": lambda: caldera_command("skipNext"), "wiim": lambda: wiim_command("next"),
              "spotify": lambda: spotify_command("POST", "next")},
@@ -1167,7 +1216,7 @@ CONTROL = {
 
 
 def control(cmd):
-    """Befehl (skip, prev, stop, play, similar) an die Quelle, die gerade angezeigt wird. False, wenn das nicht geht."""
+    """Send a command (skip, prev, stop, play, similar ...) to the source currently shown. False if that is not possible."""
     c = shown()
     fn = CONTROL[cmd].get(c.get("source")) if c.get(cmd) else None
     if not fn:
@@ -1175,12 +1224,12 @@ def control(cmd):
     return fn() is not False
 
 
-# ------------------------------------------------------------ Webserver
+# ------------------------------------------------------------ Web server
 HERE = os.path.dirname(os.path.abspath(__file__))
 INDEX_FILE = os.environ.get("INDEX_FILE", os.path.join(HERE, "index.html"))
 with open(INDEX_FILE, "rb") as f:
     INDEX = f.read()
-INDEX_VERSION = hashlib.sha1(INDEX).hexdigest()[:12]  # die Seite laedt sich neu, wenn sich das aendert
+INDEX_VERSION = hashlib.sha1(INDEX).hexdigest()[:12]  # the page reloads itself when this changes
 
 
 def escape(s):
@@ -1199,24 +1248,25 @@ def setup_page():
             else:
                 configured = name in SOURCES
             if not configured:
-                st = "nicht konfiguriert"
+                st = tr("not_configured")
             elif name in errors:
-                st = "Fehler: " + errors[name]
+                st = tr("error", msg=errors[name])
             elif state.get(name):
                 i = state[name]
-                st = f"OK – {'spielt' if i['playing'] else 'Pause'}: {i['artist']} – {i['title']}"
+                st = tr("ok_item", state=tr("playing") if i["playing"] else tr("paused"),
+                        artist=i["artist"], title=i["title"])
             else:
-                st = "OK – nichts aktiv"
+                st = tr("ok_idle")
             rows += f"<tr><td><b>{escape(label)}</b></td><td>{escape(st)}</td></tr>"
-    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+    spotify_state = tr("set_up") if spotify_ready() else tr("not_set_up")
+    return f"""<!DOCTYPE html><html lang="{UI_LANG}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Setup</title>
 <style>body{{font-family:sans-serif;max-width:700px;margin:2em auto;padding:0 1em}}
 td{{padding:4px 8px;vertical-align:top}}</style></head><body>
-<h1>Now Playing – Status</h1><table>{rows}</table>
-<p>Spotify-Steuerung (Umschalter, Skip, Stopp): {"eingerichtet" if spotify_ready() else "nicht eingerichtet"}</p>
-<p>Einstellungen: <code>/etc/default/nowplaying</code> auf dem Pi, danach
-<code>sudo systemctl restart nowplaying</code>.</p>
-<p><a href="/">→ Anzeige</a></p></body></html>""".encode()
+<h1>{tr("status_title")}</h1><table>{rows}</table>
+<p>{tr("spotify_control", state=spotify_state)}</p>
+<p>{tr("settings_hint")}</p>
+<p><a href="/">{tr("to_display")}</a></p></body></html>""".encode()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1224,8 +1274,8 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def note_command(self, what, ok):
-        """Bedienung ueber die Seite protokollieren, mit der Adresse des Absenders."""
-        note(f"Befehl {what} von {self.client_address[0]}: {'ok' if ok else 'nicht ausgefuehrt'}")
+        """Log a command sent from the page, with the sender's address."""
+        note(f"Command {what} from {self.client_address[0]}: {'ok' if ok else 'not executed'}")
 
     def send(self, code, body, ctype, cache="no-store"):
         self.send_response(code)
@@ -1239,7 +1289,7 @@ class Handler(BaseHTTPRequestHandler):
         if SPECTRUM_URL.lower() != "auto":
             return SPECTRUM_URL
         host = self.headers.get("Host") or ""
-        if host.startswith("["):  # IPv6-Adresse in Klammern, Port dahinter
+        if host.startswith("["):  # IPv6 address in brackets, port after it
             host = host[:host.find("]") + 1]
         else:
             host = host.rsplit(":", 1)[0]
@@ -1257,17 +1307,18 @@ class Handler(BaseHTTPRequestHandler):
                 c.pop(k, None)
             c["display"] = "off" if c["source"] == "idle" or c.pop("idle", False) else "on"
             c["playlists"] = playlist_source() is not None
-            # Umschalter: wohin er fuehrt ("plex" / "spotify"), leer wenn er nicht geht
+            # Switch: where it leads ("plex" / "spotify"), empty if it is not available
             c["switch"] = ""
             if spotify_ready() and "caldera" in SOURCES and c["source"] in ("caldera", "spotify"):
                 c["switch"] = "plex" if c["source"] == "spotify" else "spotify"
             elif c["source"] == "wiim" and caldera_resumable():
-                c["switch"] = "plex"   # vom WiiM aus fuehrt der Umschalter immer zu Plex
+                c["switch"] = "plex"   # from the WiiM the switch always leads to Plex
             for k in CONTROL:
                 c[k] = bool(c.get(k))
             c["spectrum"] = self.spectrum_url()
             c["view"] = settings["view"]
             c["page"] = INDEX_VERSION
+            c["lang"] = UI_LANG
             return self.send(200, json.dumps(c).encode(), "application/json")
         if path.startswith("/art/"):
             try:
@@ -1281,7 +1332,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 src = playlist_source()
                 items = spotify_playlists() if src == "spotify" else playlists() if src == "caldera" else []
-            except Exception:  # noqa: BLE001 – Plex bzw. Spotify nicht erreichbar
+            except Exception:  # noqa: BLE001 – Plex or Spotify unreachable
                 items = []
             return self.send(200, json.dumps(items).encode(), "application/json")
         if path == "/setup":
@@ -1296,13 +1347,13 @@ class Handler(BaseHTTPRequestHandler):
             n = 0
         body = self.rfile.read(n) if n > 0 else b""
         if path.startswith("/api/") and path[5:] in CONTROL:
-            # Eigener Kopf: fremde Webseiten koennen ihn im Browser nicht ungefragt mitsenden
+            # Custom header: other websites cannot make a browser send it unasked
             if self.headers.get("X-NowPlaying") != "1":
                 return self.send(403, b"", "text/plain")
             src = shown().get("source")
             try:
                 ok = control(path[5:])
-            except Exception:  # noqa: BLE001 – Quelle nicht erreichbar
+            except Exception:  # noqa: BLE001 – source unreachable
                 ok = False
             self.note_command(f"{path[5:]} ({src})", ok)
             return self.send(204 if ok else 409, b"", "text/plain")
@@ -1312,9 +1363,9 @@ class Handler(BaseHTTPRequestHandler):
             src = shown().get("source")
             try:
                 ok = switch_source()
-            except Exception:  # noqa: BLE001 – Spotify oder Caldera nicht erreichbar
+            except Exception:  # noqa: BLE001 – Spotify or Caldera unreachable
                 ok = False
-            self.note_command(f"switch (weg von {src})", ok)
+            self.note_command(f"switch (away from {src})", ok)
             return self.send(204 if ok else 409, b"", "text/plain")
         if path == "/api/view":
             if self.headers.get("X-NowPlaying") != "1":
@@ -1322,7 +1373,7 @@ class Handler(BaseHTTPRequestHandler):
             to = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("to", [""])[0]
             try:
                 ok = set_view(to)
-            except OSError:  # Einstellung nicht speicherbar
+            except OSError:  # setting could not be saved
                 ok = False
             return self.send(204 if ok else 409, b"", "text/plain")
         if path == "/api/favorite":
@@ -1333,7 +1384,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 src = playlist_source()
                 known = spotify_playlists() if src == "spotify" else playlists() if src == "caldera" else []
-                ok = pid in [p["id"] for p in known]   # nur Playlists aus der gezeigten Liste
+                ok = pid in [p["id"] for p in known]   # only playlists from the list shown
                 if ok:
                     set_favorite(src, pid, on)
             except Exception:  # noqa: BLE001
@@ -1348,7 +1399,7 @@ class Handler(BaseHTTPRequestHandler):
                     ok = playlist_source() == "spotify" and start_spotify_playlist(pid)
                 else:
                     ok = playlist_source() == "caldera" and start_playlist(pid)
-            except Exception:  # noqa: BLE001 – Plex, Caldera oder Spotify nicht erreichbar
+            except Exception:  # noqa: BLE001 – Plex, Caldera or Spotify unreachable
                 ok = False
             self.note_command("playlist", ok)
             return self.send(204 if ok else 409, b"", "text/plain")
@@ -1374,7 +1425,7 @@ if __name__ == "__main__":
     if SPOTIFY_CONNECT:
         threading.Thread(target=watch_librespot, daemon=True).start()
     active = list(SOURCES) + (["spotify"] if SPOTIFY_CONNECT else [])
-    note(f"Now Playing auf Port {PORT}, Quellen: {', '.join(active) or 'keine'}")
+    note(f"Now Playing on port {PORT}, sources: {', '.join(active) or 'none'}")
     srv = ThreadingHTTPServer(("", PORT), Handler)
     srv.daemon_threads = True
     srv.serve_forever()

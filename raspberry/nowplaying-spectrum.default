@@ -1,20 +1,20 @@
-# Einstellungen fuer den Spektrum-Dienst. Nach Aenderungen:
+# Settings for the spectrum service. After changes:
 #   sudo systemctl restart nowplaying-spectrum
 
-# Port fuer das Tablet. Bei Aenderung auch SPECTRUM_PORT in
-# /etc/default/nowplaying anpassen (und nowplaying neu starten)
+# Port for the tablet. If you change it, also adjust SPECTRUM_PORT in
+# /etc/default/nowplaying (and restart nowplaying)
 PORT=8090
-# Anzahl Balken (die Anzeige nutzt 40)
+# Number of bars (the display uses 40)
 BANDS=40
-# Bilder pro Sekunde
+# Frames per second
 FPS=30
-# Verzoegerung in Millisekunden. 0 = Balken so frueh wie moeglich. Laufen sie dem
-# Ton voraus, Wert erhoehen.
+# Delay in milliseconds. 0 = bars as early as possible. If they run ahead of
+# the audio, increase this value.
 DELAY_MS=0
-# Frequenzbereich in Hz
+# Frequency range in Hz
 FMIN=40
 FMAX=16000
-# Dynamikbereich in dB (kleiner = Balken springen staerker)
+# Dynamic range in dB (smaller = bars jump more)
 RANGE_DB=45
-# Anhebung der Hoehen in dB pro Oktave
+# Treble boost in dB per octave
 TILT_DB=3

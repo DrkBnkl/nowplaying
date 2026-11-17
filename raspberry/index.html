@@ -11,8 +11,8 @@
   body.play  #play  { display: block; }
   body.off   #off   { display: block; }
 
-  /* ---------- Cover links, Songinfos rechts, LED-Leiste unten ----------
-     Zwei Ebenen (.slide): die neue wird vorbereitet und blendet ueber die alte. */
+  /* ---------- Cover on the left, song info on the right, LED bar at the bottom ----------
+     Two layers (.slide): the new one is prepared off-screen and cross-fades over the old one. */
   #play { background: #0B0B0C; overflow: hidden; }
   .slide { position: absolute; left: 0; top: 0; right: 0; bottom: 0; opacity: 0;
     -webkit-transition: opacity 1.5s ease; transition: opacity 1.5s ease; }
@@ -31,17 +31,17 @@
   .info { -webkit-flex: 1; flex: 1; min-width: 0; margin-left: 8vw; margin-right: 2vw;
     text-shadow: 0 .3vh 1.5vh rgba(0,0,0,.45); -webkit-transition: opacity .6s; transition: opacity .6s; }
   .info div { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical;
-    word-wrap: break-word; overflow-wrap: break-word; }  /* lange Woerter umbrechen statt abschneiden */
+    word-wrap: break-word; overflow-wrap: break-word; }  /* wrap long words instead of clipping them */
   .artist { font-size: 7vh; font-weight: 500; line-height: 1.15; color: #F4F4F4; -webkit-line-clamp: 2; }
   .title  { font-size: 4.6vh; line-height: 1.25; color: #D6D6D6; margin-top: 2vh; -webkit-line-clamp: 3; }
   .next   { font-size: 2.6vh; line-height: 1.3; margin-top: 3vh; -webkit-line-clamp: 1; opacity: .7; }
   .info .next:empty { display: none; }
-  /* Passt der Textblock nicht zwischen die Knoepfe oben und unten, wird stufenweise gekuerzt
-     (siehe fit): Titel zweizeilig, dann "Danach" weg, dann Titel einzeilig */
+  /* If the text block does not fit between the top and bottom buttons, it is shortened step by
+     step (see fit()): title on two lines, then drop "Up next", then title on one line */
   .info.t1 .title { -webkit-line-clamp: 2; }
   .info.t2 .next { display: none; }
   .info.t3 .title { -webkit-line-clamp: 1; }
-  /* Playlist, aus der der Titel kommt, mit kleinem Logo der Quelle */
+  /* Playlist the track comes from, with a small logo of the source */
   .info .pls { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center;
     font-size: 2.8vh; line-height: 1.3; margin-top: 1.4vh; white-space: nowrap; }
   .pls i { -webkit-flex: none; flex: none; width: 2.8vh; height: 2.8vh; margin-right: 1.2vh; }
@@ -50,40 +50,40 @@
   .meta   { font-size: 3.2vh; line-height: 1.3; color: #9C9C9C; margin-top: 1.6vh; -webkit-line-clamp: 2; }
   .specspace { height: 12vh; margin-top: 3.5vh; -webkit-flex: none; flex: none; }
   #spec { position: absolute; left: 5vw; right: 5vw; bottom: 4.5vh; width: 90vw; height: 12vh; display: block;
-    -webkit-transform: translateZ(0); transform: translateZ(0); }  /* eigene Ebene ueber den Slides */
+    -webkit-transform: translateZ(0); transform: translateZ(0); }  /* own compositing layer above the slides */
   body.paused .cover, body.paused .info { opacity: .5; }
   body.nospec #spec { visibility: hidden; }
-  /* Mehr davon, Stopp und naechster Titel: rechts ueber der Leiste, nur wenn die Quelle das kann */
+  /* More like this, stop and next track: on the right above the bar, only if the source supports it */
   .ctl { display: none; position: absolute; bottom: 22vh; width: 9vh; height: 9vh; border-radius: 50%;
     box-sizing: border-box; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.07);
     color: rgba(255,255,255,.6); -webkit-transform: translateZ(0); transform: translateZ(0);
     -webkit-transition: opacity .2s; transition: opacity .2s; -webkit-tap-highlight-color: transparent; }
   .ctl svg { position: absolute; left: 27%; top: 27%; width: 46%; height: 46%; fill: currentColor; }
   .ctl.busy { opacity: .35; }
-  /* untere Reihe: beginnt buendig mit dem Text (linke Kante der Infos); ausgeblendete Knoepfe
-     hinterlassen keine Luecke */
+  /* Bottom row: starts flush with the text (left edge of the info block); hidden buttons
+     leave no gap */
   #ctls { position: absolute; left: calc(13vw + 74vh); bottom: 22vh; height: 9vh; white-space: nowrap;
     -webkit-transform: translateZ(0); transform: translateZ(0); }
   #ctls .ctl { position: relative; bottom: auto; float: left; margin-right: 2.5vh; }
   #ctls #skip { margin-right: 0; }
   body.canskip #skip, body.canprev #prev, body.canstop #stop, body.cansimilar #similar,
   body.canalbum #albumplay { display: block; }
-  /* pausiert: die uebrigen Knoepfe bleiben stehen, ausgegraut und ohne Wirkung */
+  /* Paused: the other buttons stay in place, greyed out and inactive */
   body.paused #albumplay, body.paused #similar, body.paused #prev, body.paused #skip { opacity: .3; }
   body.inalbum #albumplay { opacity: .3; }
-  body.nosimilar #similar { opacity: .3; }   /* fuer diesen Titel kennt Plex keine aehnlichen */
-  /* Playlists: Knopf oben rechts klappt die zuletzt gespielten der laufenden Quelle auf */
-  /* obere Reihe (Umschalter, Playlists): rechtsbuendig, die rechte Kante schliesst mit dem
-     Vorwaerts-Knopf der unteren Reihe ab (fuenf Knoepfe zu 9vh mit 2.5vh Abstand = 55vh) */
+  body.nosimilar #similar { opacity: .3; }   /* Plex knows no similar tracks for this one */
+  /* Playlists: the top-right button opens the recently played playlists of the current source */
+  /* Top row (source switch, playlists): right-aligned; its right edge lines up with the
+     skip button of the bottom row (five 9vh buttons with 2.5vh spacing = 55vh) */
   #tops { position: absolute; left: auto; right: 5vw; width: 55vh; top: 5vh; height: 9vh; white-space: nowrap;
     -webkit-transform: translateZ(0); transform: translateZ(0); }
   #tops .ctl { position: relative; bottom: auto; float: right; margin-left: 2.5vh; }
   body.canlist #plbtn { display: block; }
-  /* Umschalter Plex <-> Spotify: laenglicher Knopf links neben dem Playlist-Knopf. Beide Logos
-     stehen fest nebeneinander (Plex links, Spotify rechts); farbig ist die Quelle, die gerade
-     laeuft, die andere ist grau. Antippen wechselt zur anderen. */
+  /* Plex <-> Spotify switch: elongated button left of the playlist button. Both logos sit
+     side by side (Plex left, Spotify right); the source currently playing is in colour, the
+     other one grey. Tapping switches to the other source. */
   #swbtn { width: 17vh; border-radius: 4.5vh; }
-  /* Zufallswiedergabe: Schalter oben im Auswahlfeld, ueber beide Spalten */
+  /* Shuffle: toggle at the top of the playlist panel, spanning both columns */
   .plhead { -webkit-column-span: all; column-span: all; display: -webkit-flex; display: flex;
     -webkit-align-items: center; align-items: center; padding: .4vh 1.4vh 1vh; margin-bottom: .6vh;
     border-bottom: 1px solid rgba(255,255,255,.12); font-size: 3.1vh; color: #E4E4E4;
@@ -104,7 +104,7 @@
   #swbtn .spotify { left: 9.2vh; }
   #swbtn.to-spotify .plex { fill: #E5A00D; }
   #swbtn.to-plex .spotify { fill: #1ED760; }
-  /* bis zu zehn Eintraege in zwei Spalten (links 1-5, rechts 6-10), ohne Blaettern */
+  /* up to ten entries in two columns (left 1-5, right 6-10), no paging */
   #plist { display: none; position: absolute; left: 5vw; right: 5vw; top: 16vh; box-sizing: border-box;
     padding: 1vh; border-radius: 1.6vh; background: #2e2f31; border: 1px solid rgba(255,255,255,.14);
     -webkit-column-count: 2; column-count: 2; -webkit-column-gap: 2vh; column-gap: 2vh;
@@ -117,31 +117,31 @@
   .pl img { width: 6.8vh; height: 6.8vh; -webkit-flex: none; flex: none; border-radius: .8vh; background: #2a2a2a; }
   .pl span { -webkit-flex: 1; flex: 1; min-width: 0; margin: 0 1.6vh; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .pl small { font-size: 2.5vh; color: #8F8F8F; }
-  /* Stern: Favorit setzen oder entfernen, ohne die Playlist zu starten */
+  /* Star: add or remove a favourite without starting the playlist */
   .pl b { -webkit-flex: none; flex: none; width: 8.4vh; height: 6.8vh; position: relative; }
   .pl b svg { position: absolute; left: 26%; top: 24%; width: 48%; height: 52%; fill: none; stroke: #7d7d7d; stroke-width: 1.8; }
   .pl b.on svg { fill: #F2C94C; stroke: #F2C94C; }
   #plist p { margin: 2vh; font-size: 3vh; color: #9C9C9C; }
-  /* Fortschritt: duenne Linie direkt ueber der Leiste, nur wenn die Quelle Spielzeit meldet */
+  /* Progress: thin line right above the bar, only if the source reports playback position */
   #prog { display: none; position: absolute; left: 5vw; width: 90vw; bottom: 17.6vh; height: .4vh;
     background: rgba(255,255,255,.10); border-radius: .2vh; overflow: hidden;
     -webkit-transform: translateZ(0); transform: translateZ(0); }
-  /* bewusst ohne Animation: eine gleitende Linie laesst das alte Tablet die ganze Seite
-     dauernd neu zeichnen (ein Prozessorkern), und die LED-Leiste ruckelt dann */
+  /* Deliberately not animated: a gliding line makes the old tablet repaint the whole page
+     constantly (one CPU core), and the LED bar then stutters */
   #prog i { display: block; height: 100%; width: 0; background: rgba(255,255,255,.55); }
   body.hasprog #prog { display: block; }
   body.paused #prog { opacity: .5; }
-  /* ---------- Grosse Ansicht ohne Leiste (Musik direkt am WiiM, oder mit dem
-     Ansicht-Knopf gewaehlt): grosses Cover; die Knoepfe stehen unten rechts, die obere
-     Reihe oben rechts, jeweils buendig mit dem Cover ---------- */
+  /* ---------- Big view without the bar (music played directly on the WiiM, or chosen
+     with the view switch): large cover; buttons at the bottom right, the top row at the
+     top right, each flush with the cover ---------- */
   body.big .specspace { display: none; }
   body.big .cover { width: 86vh; height: 86vh; }
   body.big .info { margin-left: 5vw; margin-right: 0; }
   body.big #ctls { left: auto; right: 5vw; bottom: 6.75vh; }
   body.big #prog { bottom: 2.6vh; }
-  /* Ansicht-Schalter: dreiteilig, immer an derselben Stelle ganz oben rechts. Jedes Feld zeigt
-     seine Ansicht als kleines Bild (Cover, Textzeilen, Leiste); das Feld der laufenden Ansicht ist
-     hell. Antippen waehlt die Ansicht direkt. Die uebrige obere Reihe steht links daneben. */
+  /* View switch: three segments, always in the same spot at the very top right. Each segment
+     shows its view as a small pictogram (cover, text lines, bar); the active view's segment is
+     highlighted. Tapping selects that view directly. The rest of the top row sits to its left. */
   #views { display: none; position: absolute; right: 5vw; top: 5vh; width: 25.5vh; height: 9vh;
     box-sizing: border-box; border-radius: 4.5vh; overflow: hidden;
     border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.07);
@@ -152,18 +152,18 @@
   #views svg { position: absolute; left: 50%; top: 50%; width: 5.4vh; height: 5.4vh; margin: -2.7vh 0 0 -2.7vh;
     fill: currentColor; }
   #views.v-full .vf, #views.v-big .vb, #views.v-cover .vc { color: #fff; background: rgba(255,255,255,.17); }
-  /* ---------- Nur das Cover: mittig und so gross wie moeglich; von den Knoepfen bleibt
-     nur der Ansicht-Schalter (dezent), damit man zurueckkommt ---------- */
+  /* ---------- Cover only: centred and as large as possible; of all the buttons only the
+     view switch remains (subdued), so you can get back ---------- */
   body.coveronly .info, body.coveronly #ctls, body.coveronly #swbtn, body.coveronly #plbtn { display: none; }
   body.coveronly #prog, body.coveronly #plist { display: none !important; }
   body.coveronly .top { -webkit-justify-content: center; justify-content: center; }
   body.coveronly .cover { width: 90vh; height: 90vh; }
   body.coveronly #views { opacity: .55; }
-  #stop .play, body.paused #stop .stop { display: none; }   /* pausiert: Stopp wird zu Play */
+  #stop .play, body.paused #stop .stop { display: none; }   /* paused: stop turns into play */
   body.paused #stop .play { display: block; }
-  .ctl.done { color: #fff; background: rgba(255,255,255,.22); }   /* kurz hell: eingefuegt */
+  .ctl.done { color: #fff; background: rgba(255,255,255,.22); }   /* briefly highlighted: tracks added */
 
-  /* ---------- Keine Musik: schwarz, das Display geht aus ---------- */
+  /* ---------- No music: black, the display turns off ---------- */
   #off { background: #000; }
 </style>
 </head>
@@ -202,7 +202,7 @@
 <div id="off" class="view"></div>
 
 <script>
-// Bewusst ES5 + XMLHttpRequest, damit es auch im alten Android-WebView (Yoga: Android 6) laeuft.
+// Deliberately ES5 + XMLHttpRequest so it also runs in the old Android WebView (Yoga tablet: Android 6).
 function el(id) { return document.getElementById(id); }
 function get(url, cb, timeout) {
   var x = new XMLHttpRequest();
@@ -212,7 +212,26 @@ function get(url, cb, timeout) {
   x.send();
 }
 
-/* ================= Cover-Farben ================= */
+/* ================= UI language ================= */
+// German by default; the server sends "lang" ("de" or "en") with every /api/now response.
+var I18N = {
+  de: { next: "Danach", shuffle: "Zufallswiedergabe", noPlaylists: "Keine Playlists gefunden" },
+  en: { next: "Up next", shuffle: "Shuffle", noPlaylists: "No playlists found" }
+};
+var lang = "de";
+function T(key) { return I18N[lang][key]; }
+function setLang(l) {
+  l = I18N[l] ? l : "de";
+  if (l === lang) return;
+  lang = l;
+  document.documentElement.lang = l;
+  // re-render static labels (the "Up next" line is refreshed by render() on every poll)
+  if (shufHead) shufHead.getElementsByTagName("span")[0].textContent = T("shuffle");
+  var empty = plist.getElementsByClassName("empty")[0];
+  if (empty) empty.textContent = T("noPlaylists");
+}
+
+/* ================= Cover colours ================= */
 var pal = { low: "#3E8C9C", mid: "#E9A24F", high: "#F2E6D0" };
 function rgb2hsl(r, g, b) {
   r /= 255; g /= 255; b /= 255;
@@ -243,7 +262,7 @@ function extractPalette(img) {
     var order = bins.map(function (b, idx) { return { b: b, i: idx }; })
       .filter(function (o) { return o.b.w > 0; })
       .sort(function (a, b) { return b.b.w - a.b.w; });
-    lum = lum / (d.length / 4);   // nicht in pal schreiben: das ist noch die Palette des gezeigten Covers
+    lum = lum / (d.length / 4);   // don't write to pal: it still holds the palette of the cover being shown
     if (!order.length) {
       pal = { low: "#7A7A7A", mid: "#BDBDBD", high: "#F2F2F2", t1: "#F4F4F4", t2: "#CFCFCF", t3: "#9C9C9C", lum: lum };
       return;
@@ -258,7 +277,7 @@ function extractPalette(img) {
     }
     if (lo === m) lo = [m[0], m[1] * .8, .42];
     var hi = bright[2] > .7 ? [bright[0], Math.min(bright[1], .5), Math.max(.82, bright[2])] : [m[0], .35, .86];
-    // Textfarben: Grundton des Covers, hell genug fuer den dunklen Hintergrund
+    // Text colours: the cover's base hue, light enough for the dark background
     pal = { low: hsl(lo[0], lo[1], lo[2]), mid: hsl(m[0], m[1], m[2]), high: hsl(hi[0], hi[1], hi[2]),
             t1: hsl(m[0], Math.min(m[1], .45), .9),
             t2: hsl(m[0], Math.max(.45, Math.min(m[1], .8)), .72),
@@ -266,7 +285,7 @@ function extractPalette(img) {
   } catch (e) {}
 }
 
-/* ================= Spektrum (LED-Leiste) ================= */
+/* ================= Spectrum (LED bar) ================= */
 var N = 40, M = 10, lv = [], pk = [], tg = [], lastSpec = 0, lastSignal = 0, es = null, esUrl = "";
 for (var z = 0; z < N; z++) { lv.push(0); pk.push(0); tg.push(0); }
 function onSpectrum(arr) {
@@ -286,12 +305,11 @@ function connectSpectrum(url) {
   es = new EventSource(url);
   es.onmessage = function (e) { onSpectrum(e.data.split(";")); };
 }
-/* Sparsam fuer das alte Tablet: 30 Bilder/s (FRAME_MS), Zeichnen in CSS-Pixeln,
-   die dunklen Zellen werden einmal vorgezeichnet, und es wird nur neu gezeichnet,
-   wenn sich mindestens eine Zelle aendert. */
-var cv = el("spec"), cx = cv.getContext("2d"), running = false, SCALE = 1, FRAME_MS = 33;  // 30 Bilder/s = Takt der Daten vom Pi
+/* Frugal for the old tablet: 30 fps (FRAME_MS), drawing in CSS pixels, the dark cells
+   are pre-rendered once, and a frame is only redrawn when at least one cell changes. */
+var cv = el("spec"), cx = cv.getContext("2d"), running = false, SCALE = 1, FRAME_MS = 33;  // 30 fps = rate of the data from the Pi
 var grid = document.createElement("canvas"), gridKey = "", shown = [], geo = null, lastFrame = 0;
-var BANDS = [[0, 5, "low"], [5, 8, "mid"], [8, 10, "high"]];  // Zeilen [von, bis) -> Farbe
+var BANDS = [[0, 5, "low"], [5, 8, "mid"], [8, 10, "high"]];  // rows [from, to) -> colour
 function cellY(r) { return geo.h - (r + 1) * geo.sh - r * geo.gy; }
 function layout() {
   var w = Math.round(cv.clientWidth * SCALE), h = Math.round(cv.clientHeight * SCALE);
@@ -315,15 +333,15 @@ function frame() {
   setTimeout(frame, FRAME_MS);
   var now = new Date().getTime(), i, b, r;
   if (now - lastSpec > 1000) for (i = 0; i < N; i++) tg[i] = 0;
-  // Bewegung wie SpectrumBar.java in der App (dort je Bild bei 30 Bildern/s). Hier nach der
-  // wirklich vergangenen Zeit gerechnet: schafft das Tablet weniger Bilder, faellt die Leiste
-  // trotzdem gleich schnell. k = vergangene Bilder zu 33 ms, nach einer Pause hoechstens 4.
+  // Motion matches SpectrumBar.java in the app (there per frame at 30 fps). Here it is based on
+  // the actual elapsed time: if the tablet renders fewer frames, the bar still falls at the same
+  // speed. k = elapsed 33 ms frames, capped at 4 after a pause.
   var k = Math.min(4, Math.max(1, (now - lastFrame) / FRAME_MS));
   lastFrame = now;
   var fall = 1 - Math.pow(.4, k), drop = .04 * k;
   var dirty = layout(), lit = [], peak = [];
   for (i = 0; i < N; i++) {
-    lv[i] = tg[i] > lv[i] ? tg[i] : lv[i] + (tg[i] - lv[i]) * fall;   // Anstieg sofort
+    lv[i] = tg[i] > lv[i] ? tg[i] : lv[i] + (tg[i] - lv[i]) * fall;   // rise instantly
     pk[i] = lv[i] >= pk[i] ? lv[i] : Math.max(lv[i], pk[i] - drop);
     lit[i] = Math.round(lv[i] * M);
     peak[i] = Math.max(lit[i], Math.round(pk[i] * M)) - 1;
@@ -343,9 +361,9 @@ function frame() {
 }
 function setRunning(on) { if (on && !running) { running = true; frame(); } else if (!on) running = false; }
 
-/* In der Tablet-App zeichnet die App die Leiste selbst (eigene Zeichenflaeche, spart auf dem
-   alten Tablet fast einen ganzen Prozessorkern). Die Seite meldet ihr nur, ob die Leiste
-   erlaubt ist, die Adresse des Spektrum-Dienstes und die Farben des Covers. */
+/* Inside the tablet app, the app draws the bar itself (its own surface, which saves almost a
+   whole CPU core on the old tablet). The page only tells it whether the bar is allowed, the
+   URL of the spectrum stream and the cover colours. */
 var APP = window.NowPlayingApp && window.NowPlayingApp.bar ? window.NowPlayingApp : null;
 var appBar = { on: false, url: "", sent: "" };
 function hex(c) { cx.fillStyle = c; return cx.fillStyle; }   // "hsl(...)" -> "#rrggbb"
@@ -357,18 +375,18 @@ function syncAppBar() {
   APP.bar(a[0], a[1], a[2], a[3], a[4]);
 }
 
-/* ================= Zustand, Vorladen und Ueberblenden ================= */
+/* ================= State, preloading and cross-fading ================= */
 var DEFAULT_PAL = { low: "#7A7A7A", mid: "#BDBDBD", high: "#F2F2F2", t1: "#F4F4F4", t2: "#CFCFCF", t3: "#9C9C9C", lum: 0 };
 var slides = document.getElementsByClassName("slide"), cur = -1, shownKey = null, wantKey = null;
-var arts = {}, artOrder = [];   // Cover-Schluessel -> {img, pal}; geladene Bilder werden wiederverwendet
-var artFail = {}, failKey = null;   // Cover-Schluessel -> Zeit des letzten Fehlschlags; Titel, der ohne Cover gezeigt wird
+var arts = {}, artOrder = [];   // cover key -> {img, pal}; loaded images are reused
+var artFail = {}, failKey = null;   // cover key -> time of last failure; track currently shown without cover
 function paletteOf(img) { var saved = pal; extractPalette(img); var r = pal; pal = saved; return r; }
 function loadArt(art, cb) {
   if (!art) { if (cb) cb(null); return; }
   var e = arts[art];
   if (e && e.ready) { if (cb) cb(e); return; }
   if (e) { if (cb) e.cbs.push(cb); return; }
-  // nach einem Fehlschlag erst nach 10 s erneut versuchen
+  // after a failure, retry only after 10 s
   if (artFail[art] && new Date().getTime() - artFail[art] < 10000) { if (cb) cb(null); return; }
   delete artFail[art];
   e = arts[art] = { ready: false, cbs: cb ? [cb] : [] };
@@ -388,7 +406,7 @@ function loadArt(art, cb) {
   };
   img.src = "art/" + art;
 }
-function drawCrop(canvas, img, w, h) {   // Bild mittig zuschneiden und fuellend zeichnen
+function drawCrop(canvas, img, w, h) {   // centre-crop the image and draw it filling the canvas
   canvas.width = w; canvas.height = h;
   var g = canvas.getContext("2d");
   if (!img) { g.clearRect(0, 0, w, h); return; }
@@ -396,40 +414,40 @@ function drawCrop(canvas, img, w, h) {   // Bild mittig zuschneiden und fuellend
   g.drawImage(img, (img.width - iw) / 2, (img.height - ih) / 2, iw, ih, 0, 0, w, h);
 }
 function q(slide, cls) { return slide.getElementsByClassName(cls)[0]; }
-/* Zeilenumbruch: Text soll an sinnvollen Stellen umbrechen, nicht mitten in einem Zusatz.
-   - Klammerzusaetze "(feat. ...)" / "[Live ...]" und der Teil hinter " - " bleiben zusammen,
-     wenn sie in eine Zeile passen (Leerzeichen darin werden geschuetzt).
-   - Beim Interpreten bleibt jeder einzelne Name zusammen; umgebrochen wird zwischen den
-     Namen (hinter ";" oder ",").
-   - Passt ein einzelnes Wort nicht in die Zeile, wird die Schrift verkleinert (bis 60 %).
-     Erst wenn auch das nicht reicht, darf das Wort hinter Trennzeichen umbrechen. */
-// Breiten werden im Seitenlayout gemessen (unsichtbare Probe im Textfeld selbst), nicht per
-// Canvas: dessen Messung weicht im alten WebView des Tablets von der echten Darstellung ab.
+/* Line breaking: text should wrap at sensible points, not in the middle of an annotation.
+   - Bracketed parts "(feat. ...)" / "[Live ...]" and the part after " - " stay together
+     if they fit on one line (their spaces are made non-breaking).
+   - For the artist, each individual name stays together; breaks go between names
+     (after ";" or ",").
+   - If a single word does not fit on the line, the font is scaled down (to at least 60 %).
+     Only if that is not enough may the word break after punctuation. */
+// Widths are measured in the page layout (an invisible probe inside the text element itself),
+// not via canvas: canvas measurements in the tablet's old WebView differ from actual rendering.
 var probe = document.createElement("span");
 probe.style.cssText = "position:absolute;left:0;top:0;visibility:hidden;white-space:nowrap";
 function tidy(node, t, names) {
   t = t || "";
-  node.style.fontSize = "";   // Verkleinerung vom vorigen Titel zuruecknehmen
+  node.style.fontSize = "";   // undo the shrinking from the previous track
   node.textContent = "";
   var w = node.clientWidth - 1, words = t.split(/\s+/), widest = 0, k;
   if (w <= 0) return t;
-  node.appendChild(probe);    // erbt Schrift und Groesse; der Aufrufer ersetzt den Inhalt danach
+  node.appendChild(probe);    // inherits font and size; the caller replaces the content afterwards
   function width(str) { probe.textContent = str; return probe.getBoundingClientRect().width; }
   function fits(str) { return width(str) <= w; }
-  // Ein Wort, das allein nicht in die Zeile passt ("Melodiesinfonie"): Schrift verkleinern
-  // (bis auf 60 %), statt das Wort zu trennen
+  // A word that doesn't fit on a line by itself (e.g. "Melodiesinfonie"): shrink the font
+  // (down to 60 %) instead of breaking the word
   for (k = 0; k < words.length; k++) widest = Math.max(widest, width(words[k]));
   if (widest > w) {
     var size = parseFloat(getComputedStyle(node).fontSize);
-    // Android vergroessert die Schrift je nach Systemeinstellung (hier 115 %): Faktor ermitteln,
-    // sonst wird die "verkleinerte" Schrift groesser als vorher
+    // Android scales fonts according to the system setting (here 115 %): determine the factor,
+    // otherwise the "shrunk" font ends up larger than before
     node.style.fontSize = "100px";
     var zoom = parseFloat(getComputedStyle(node).fontSize) / 100 || 1;
     node.style.fontSize = Math.max(size * .6, Math.floor(size * w / widest * .98)) / zoom + "px";
   }
   function keep(str) { return fits(str) ? str.replace(/ /g, "\u00A0") : str; }
   if (names) {
-    var parts = t.split(/(;\s*|,\s+)/);   // Namen und Trenner im Wechsel
+    var parts = t.split(/(;\s*|,\s+)/);   // names and separators alternating
     for (var i = 0; i < parts.length; i++)
       parts[i] = i % 2 ? (/\s$/.test(parts[i]) ? parts[i] : parts[i] + "\u200B") : keep(parts[i]);
     t = parts.join("");
@@ -440,11 +458,11 @@ function tidy(node, t, names) {
     return fits(word) ? word : word.replace(/([\/;:_.|-])/g, "$1\u200B");
   });
 }
-// "Danach": naechster Titel der Warteschlange (nur Caldera meldet ihn)
+// "Up next": next track in the queue (only Caldera reports it)
 function nextText(d) {
   var n = d.next;
-  if (d.context === "album") return "";   // im Album sagt "Titel n von m" genug
-  return n && n.title ? "Danach: " + (n.artist ? n.artist + " \u2013 " : "") + n.title : "";
+  if (d.context === "album") return "";   // in an album, "Track n of m" says enough
+  return n && n.title ? T("next") + ": " + (n.artist ? n.artist + " \u2013 " : "") + n.title : "";
 }
 var ICONS = {
   caldera: '<svg viewBox="0 0 24 24"><path fill="#E5A00D" d="M5.5 2h6.2l6.8 10-6.8 10H5.5l6.8-10z"/></svg>',
@@ -452,8 +470,8 @@ var ICONS = {
   radio: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M10 3l1.8 5.2 5.2 1.8-5.2 1.8L10 17l-1.8-5.2L3 10l5.2-1.8zM18 14l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z"/></svg>',
   album: '<svg viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18zM12 9.5a2.5 2.5 0 1 1 0 5a2.5 2.5 0 0 1 0-5z"/></svg>'
 };
-// Zeile unter dem Album: Playlist-Name (Logo der Quelle), "Song Radio: ..." (Funken) oder im
-// Album "Titel n von m" (Platte); nur wenn die Quelle etwas nennt. Liefert true bei Aenderung.
+// Line below the album: playlist name (source logo), "Song Radio: ..." (sparkle) or, in an
+// album, "Track n of m" (record); only if the source provides one. Returns true on change.
 function setPlaylist(slide, d) {
   var kind = d.context === "radio" || d.context === "album" ? d.context : d.source;
   var box = q(slide, "pls"), name = d.playlist || "", icon = ICONS[kind] || "", changed = false;
@@ -462,10 +480,10 @@ function setPlaylist(slide, d) {
   if (box.getAttribute("data-src") !== kind) { box.setAttribute("data-src", kind); box.firstChild.innerHTML = icon; }
   return changed;
 }
-// Der Textblock steht mittig zwischen den Knoepfen oben rechts und denen ueber der Leiste.
-// Wird er hoeher als der Platz dazwischen (knapp die halbe Hoehe), rutscht er in die Knoepfe: kuerzen.
+// The text block is centred between the top-right buttons and those above the bar.
+// If it gets taller than the space in between (just under half the height), it would overlap the buttons: shorten it.
 function fit(slide) {
-  // grosse Ansicht: Knoepfe ganz oben und ganz unten, dazwischen ist mehr Platz
+  // big view: buttons at the very top and bottom, more room in between
   var info = q(slide, "info"), max = window.innerHeight * (bigView ? .62 : .49), steps = ["t1", "t2", "t3"], cls = "info";
   info.className = cls;
   for (var i = 0; i < steps.length && info.offsetHeight > max; i++) { cls += " " + steps[i]; info.className = cls; }
@@ -476,7 +494,7 @@ function showSlide(d, e) {
   var size = Math.round((cov.clientWidth || window.innerHeight * .74) * dpr);
   drawCrop(cov, e && e.img, size, size);
   drawCrop(q(s, "bg"), e && e.img, 64, 40);
-  // helle Cover ergeben einen hellen Hintergrund: dann staerker abdunkeln, damit der Text lesbar bleibt
+  // bright covers give a bright background: darken more so the text stays readable
   var f = "blur(40px) brightness(" + (p.lum > .5 ? .28 : p.lum > .3 ? .38 : .5) + ")", bg = q(s, "bg");
   bg.style.webkitFilter = f; bg.style.filter = f;
   var t = [["artist", d.artist, p.t1], ["title", d.title, p.t2],
@@ -486,10 +504,10 @@ function showSlide(d, e) {
   setPlaylist(s, d); q(s, "pls").style.color = p.t3;
   fit(s);
   el("prog").firstChild.style.backgroundColor = p.t2 || "";
-  pal = p;   // Leiste nimmt die Farben des neuen Covers
+  pal = p;   // the bar takes on the new cover's colours
   syncAppBar();
-  s.className = "slide";            // sichtbar machen (noch transparent) ...
-  s.offsetWidth;                    // ... Layout erzwingen, damit die Ueberblendung startet
+  s.className = "slide";            // make visible (still transparent) ...
+  s.offsetWidth;                    // ... force layout so the cross-fade starts
   s.className = "slide on";
   if (cur >= 0) {
     var old = slides[cur];
@@ -500,7 +518,8 @@ function showSlide(d, e) {
 }
 var pageVersion = null;
 function render(d) {
-  // Neue Fassung der Seite auf dem Pi installiert: neu laden (sonst erst beim Neustart der App)
+  setLang(d.lang);
+  // A new version of the page was installed on the Pi: reload (otherwise only on app restart)
   if (d.page) {
     if (pageVersion === null) pageVersion = d.page;
     else if (d.page !== pageVersion) { location.reload(); return; }
@@ -508,7 +527,7 @@ function render(d) {
   var view = d.source === "idle" ? "off" : "play";
   var cls = view;
   wiimView = view === "play" && d.source === "wiim";
-  // Ansicht-Schalter (nur Plex/Spotify): "full" mit Leiste, "big" ohne Leiste wie beim WiiM, "cover" nur das Cover
+  // View switch (Plex/Spotify only): "full" with bar, "big" without bar like the WiiM, "cover" cover only
   var canBar = view === "play" && !wiimView && !!d.view, barOff = canBar && d.view !== "full";
   var coverOnly = canBar && d.view === "cover";
   bigView = wiimView || barOff;
@@ -526,80 +545,80 @@ function render(d) {
   noSimilar = view === "play" && !d.similar && !!d.similar_off;
   if (noSimilar) cls += " cansimilar nosimilar";
   inAlbum = view === "play" && d.context === "album";
-  if (inAlbum) cls += " inalbum";   // Album laeuft schon: Album-Knopf ausgegraut
-  // Playlists der Quelle, die gerade laeuft (Plex oder Spotify); der Server entscheidet, ob es geht
+  if (inAlbum) cls += " inalbum";   // album already playing: album button greyed out
+  // playlists of the current source (Plex or Spotify); the server decides whether this is available
   if (view === "play" && d.playlists) cls += " canlist";
   if (view === "play" && d.duration > 0) {
     cls += " hasprog";
-    // in Schritten von 0,5 %: die Seite wird nur neu gezeichnet, wenn sich die Linie sichtbar aendert
+    // in 0.5 % steps: the page is only repainted when the line visibly changes
     var pw = Math.round(Math.max(0, Math.min(100, d.time / d.duration * 100)) * 2) / 2 + "%", pf = el("prog").firstChild;
     if (pf.style.width !== pw) pf.style.width = pw;
   }
-  // pausiert (z. B. nach Stopp): derselbe Knopf setzt die Wiedergabe fort
+  // paused (e.g. after stop): the same button resumes playback
   paused = view === "play" && !d.playing;
   if (view === "play" && (paused ? d.play : d.stop)) cls += " canstop";
   if (view === "play" && d.similar) cls += " cansimilar";
-  // pausiert: der Server nennt die Knoepfe, die sonst da waeren ("dimmed"); sie bleiben ausgegraut stehen
+  // paused: the server lists the buttons that would otherwise be shown ("dimmed"); they stay greyed out
   if (paused && d.dimmed) for (var q = 0; q < d.dimmed.length; q++) {
     var dc = DIM_CLASS[d.dimmed[q]];
     if (dc && (" " + cls + " ").indexOf(" " + dc + " ") < 0) cls += " " + dc;
   }
   if (view === "play" && d["switch"]) {
     cls += " canswitch";
-    // farbig ist die Quelle, die laeuft; vom WiiM aus (fuehrt zu Plex) sind beide Logos grau
+    // the playing source is in colour; from the WiiM (which leads to Plex) both logos are grey
     swTarget = wiimView ? "from-wiim" : d["switch"] === "plex" ? "to-plex" : "to-spotify";
     if (el("swbtn").className.indexOf("busy") < 0 && el("swbtn").className !== "ctl " + swTarget)
       el("swbtn").className = "ctl " + swTarget;
   }
   if (APP) {
-    // Tablet-App: sie holt die Daten und zeichnet die Leiste, hier bleibt die eigene aus
+    // tablet app: it fetches the data and draws the bar, so the page's own bar stays off
     appBar.on = view === "play" && !!d.spectrum && !barOff; appBar.url = d.spectrum || "";
     syncAppBar();
     if (view === "play") cls += " nospec";
     document.body.className = cls;
   } else {
     connectSpectrum(d.spectrum || "");
-    // Leiste nur zeigen, wenn der Pi gerade wirklich Signal liefert (Musik direkt am WiiM: keins)
+    // only show the bar while the Pi is actually delivering a signal (music played directly on the WiiM: none)
     var spec = view === "play" && d.spectrum && !barOff && new Date().getTime() - lastSignal <= 4000;
     if (view === "play" && !spec) cls += " nospec";
     document.body.className = cls;
-    // Zeichnen nur, solange die Leiste sichtbar ist (spart Rechenzeit auf dem alten Tablet)
+    // only draw while the bar is visible (saves CPU time on the old tablet)
     setRunning(spec);
   }
   if (view !== "play") return;
-  // die Ansicht gehoert dazu: wechselt sie, wird das Cover in der neuen Groesse neu gezeichnet
+  // the view is part of the key: when it changes, the cover is redrawn at the new size
   var key = [d.art, d.artist, d.title, d.album, d.year, coverOnly ? "cover" : bigView ? "big" : ""].join("|");
   if (key !== shownKey && key !== wantKey) {
     wantKey = key;
     loadArt(d.art || "", function (e) {
-      if (wantKey !== key) return;   // inzwischen schon der naechste Titel
+      if (wantKey !== key) return;   // already moved on to the next track
       wantKey = null;
       if (!e && d.art) {
-        // Cover gerade nicht ladbar: Text einmal ohne Cover zeigen, shownKey offen lassen,
-        // damit die naechsten Abfragen es erneut versuchen
+        // cover can't be loaded right now: show the text once without a cover and leave
+        // shownKey unset so the next polls try again
         if (failKey !== key) { failKey = key; shownKey = null; showSlide(d, null); }
         return;
       }
       failKey = null; showSlide(d, e); shownKey = key;
     });
   }
-  // "Danach" kann sich aendern, ohne dass der Titel wechselt (z. B. nach "mehr davon")
+  // "Up next" can change without the track changing (e.g. after "more like this")
   if (shownKey === key && cur >= 0) {
     var nx = q(slides[cur], "next"), txt = nextText(d), changed = nx.textContent !== txt;
     if (changed) nx.textContent = txt;
-    // Spotify meldet die Playlist erst kurz nach dem Titelwechsel
+    // Spotify reports the playlist only shortly after the track change
     if (setPlaylist(slides[cur], d) || changed) fit(slides[cur]);
   }
-  // naechsten Titel (Plexamp) schon vorladen, damit der Wechsel ohne Wartezeit ueberblendet
+  // preload the next track's cover (Plexamp) so the change cross-fades without delay
   if (d.next && d.next.art) loadArt(d.next.art, null);
 }
 function poll() {
-  // Lebenszeichen an die Tablet-App: bleibt es aus, laedt sie die Seite neu
+  // heartbeat for the tablet app: if it stops, the app reloads the page
   if (window.NowPlayingApp && window.NowPlayingApp.alive) window.NowPlayingApp.alive();
   get("api/now", render);
 }
 
-/* Mehr davon, Stopp und naechster Titel: der Server reicht den Befehl an die spielende Quelle weiter */
+/* More like this, stop and next track: the server forwards the command to the playing source */
 var DIM_CLASS = { albumplay: "canalbum", similar: "cansimilar", prev: "canprev", skip: "canskip" };
 var wiimView = false, bigView = false;
 var paused = false, swTarget = "to-spotify", inAlbum = false, noSimilar = false;
@@ -607,7 +626,7 @@ function control(id) {
   var btn = el(id), busy = false;
   btn.onclick = function () {
     if (busy || (id === "albumplay" && inAlbum) || (id === "similar" && noSimilar)) return;
-    if (paused && id !== "stop") return;   // pausiert: nur Play geht, der Rest ist ausgegraut
+    if (paused && id !== "stop") return;   // paused: only play works, the rest is greyed out
     busy = true; btn.className = "ctl busy";
     var x = new XMLHttpRequest();
     x.open("POST", "api/" + (id === "stop" && paused ? "play" : id), true);
@@ -615,7 +634,7 @@ function control(id) {
     x.timeout = 6000;
     x.onloadend = function () {
       busy = false; poll();
-      // "Mehr davon" aendert nichts Sichtbares: Erfolg kurz am Knopf zeigen
+      // "More like this" changes nothing visible: briefly show success on the button
       if (id === "similar" && x.status === 204) {
         btn.className = "ctl done";
         setTimeout(function () { btn.className = "ctl"; }, 1500);
@@ -626,11 +645,11 @@ function control(id) {
 }
 control("skip"); control("prev"); control("stop"); control("similar"); control("albumplay");
 
-/* Playlists: Liste holen und aufklappen; Antippen startet die Playlist in Caldera */
+/* Playlists: fetch the list and open it; tapping an entry starts the playlist in Caldera */
 var plist = el("plist"), plTimer = null;
 var STAR = '<svg viewBox="0 0 24 24"><path d="M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6-5.4-3-5.4 3 1.1-6-4.5-4.2 6.1-.8z"/></svg>';
 function closeList() { plist.className = ""; if (plTimer) { clearTimeout(plTimer); plTimer = null; } }
-// ohne Bedienung schliesst sich die Liste nach 10 s; Beruehren und Markieren halten sie offen
+// the list closes after 10 s without interaction; touching and starring keep it open
 function keepOpen() { if (plTimer) clearTimeout(plTimer); plTimer = setTimeout(closeList, 10000); }
 plist.ontouchstart = keepOpen;
 function post(url, done) {
@@ -641,15 +660,15 @@ function post(url, done) {
   x.onloadend = function () { done(x.status === 204); };
   x.send();
 }
-// Schalter "Zufallswiedergabe" im Auswahlfeld: gilt fuer die laufende Warteschlange und fuer
-// die naechste gewaehlte Playlist
+// "Shuffle" toggle in the playlist panel: applies to the current queue and to the next
+// playlist chosen
 var shuf = { can: false, on: false }, shufHead = null;
 function paintShuffle() {
   if (shufHead) shufHead.className = "plhead" + (shuf.on ? " on" : "") + (shuf.can ? "" : " off");
 }
 function shuffleHead() {
   shufHead = document.createElement("div");
-  shufHead.innerHTML = '<svg viewBox="0 0 24 24"><path d="M3 7h3l9 10h4M3 17h3l3-3.4M13 10.4L15 7h4M17 4.5L19.5 7L17 9.5M17 14.5L19.5 17L17 19.5"/></svg><span>Zufallswiedergabe</span><i></i>';
+  shufHead.innerHTML = '<svg viewBox="0 0 24 24"><path d="M3 7h3l9 10h4M3 17h3l3-3.4M13 10.4L15 7h4M17 4.5L19.5 7L17 9.5M17 14.5L19.5 17L17 19.5"/></svg><span>' + T("shuffle") + '</span><i></i>';
   shufHead.onclick = function () {
     if (!shuf.can) return;
     shuf.on = !shuf.on; paintShuffle(); keepOpen();
@@ -661,7 +680,7 @@ function shuffleHead() {
 function fillList(items) {
   while (plist.firstChild) plist.removeChild(plist.firstChild);
   plist.appendChild(shuffleHead());
-  if (!items.length) { var p = document.createElement("p"); p.textContent = "Keine Playlists gefunden"; plist.appendChild(p); return; }
+  if (!items.length) { var p = document.createElement("p"); p.className = "empty"; p.textContent = T("noPlaylists"); plist.appendChild(p); return; }
   for (var i = 0; i < items.length; i++) (function (it) {
     var row = document.createElement("div"), img = document.createElement("img"),
         name = document.createElement("span"), cnt = document.createElement("small"),
@@ -677,31 +696,31 @@ function fillList(items) {
       post("api/playlist?id=" + encodeURIComponent(it.id), function () { closeList(); poll(); });
     };
     star.onclick = function (ev) {
-      ev.stopPropagation();   // nur markieren, nicht starten
+      ev.stopPropagation();   // only star it, don't start it
       var on = star.className !== "on";
       star.className = on ? "on" : "";
       keepOpen();
       post("api/favorite?id=" + encodeURIComponent(it.id) + "&on=" + (on ? 1 : 0), function (ok) {
-        if (!ok) star.className = on ? "" : "on";   // nicht gespeichert: Anzeige zuruecknehmen
+        if (!ok) star.className = on ? "" : "on";   // not saved: revert the display
       });
     };
     plist.appendChild(row);
   })(items[i]);
 }
-/* Umschalter: haelt die laufende Quelle an und spielt die andere weiter */
+/* Source switch: stops the current source and continues on the other one */
 el("swbtn").onclick = function () {
   var b = el("swbtn");
   if (b.className.indexOf("busy") >= 0) return;
   b.className = "ctl busy " + swTarget;
   post("api/switch", function () { b.className = "ctl " + swTarget; poll(); });
 };
-/* Ansicht-Schalter: Antippen eines Feldes waehlt dessen Ansicht; der Server merkt sie sich */
+/* View switch: tapping a segment selects its view; the server remembers it */
 (function () {
   var fields = el("views").children;
   for (var i = 0; i < fields.length; i++) (function (f) {
     f.onclick = function () {
       var v = f.getAttribute("data-view");
-      el("views").className = "v-" + v;   // sofort zeigen, die Abfrage bestaetigt es
+      el("views").className = "v-" + v;   // show immediately, the next poll confirms it
       post("api/view?to=" + v, function () { poll(); });
     };
   })(fields[i]);
@@ -712,7 +731,7 @@ el("plbtn").onclick = function () {
     fillList(items || []);
     plist.className = "open";
     keepOpen();
-  }, 20000);   // die erste Spotify-Liste braucht einige Sekunden
+  }, 20000);   // the first Spotify list takes a few seconds
 };
 
 poll();

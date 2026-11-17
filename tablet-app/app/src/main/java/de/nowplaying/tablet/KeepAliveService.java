@@ -11,18 +11,18 @@ import android.os.SystemClock;
 import android.util.Log;
 
 /**
- * Haelt den Prozess der Anzeige am Leben und die Anzeige vorne.
+ * Keeps the display's process alive and the display in the foreground.
  *
- * - Beendet Android den Prozess (Speichermangel), startet das System diesen Dienst neu
- *   (START_STICKY), und er holt die Anzeige zurueck.
- * - Solange das Display an ist, prueft der Dienst alle paar Sekunden, ob die Anzeige vorne ist.
- *   Ist laenger als FRONT_MS etwas anderes vorne (andere App, Startbildschirm) oder gibt es die
- *   Anzeige gar nicht mehr (aus der Liste der letzten Apps gewischt, vom System beendet), holt
- *   er sie nach vorn. Diese Wache sitzt im Dienst und nicht in der Anzeige selbst, weil sie
- *   auch dann laufen muss, wenn es die Anzeige nicht mehr gibt.
+ * - If Android kills the process (low memory), the system restarts this service
+ *   (START_STICKY) and it brings the display back.
+ * - While the screen is on, the service checks every few seconds whether the display is in front.
+ *   If something else has been in front for longer than FRONT_MS (another app, the home screen),
+ *   or the display no longer exists (swiped away from recent apps, killed by the system), it
+ *   brings it back to the front. This watchdog lives in the service rather than in the display
+ *   itself because it has to keep running even when the display is gone.
  */
 public class KeepAliveService extends Service {
-    static final long FRONT_MS = 60 * 1000;   // etwas anderes vorne: so lange dulden (Android-Einstellungen)
+    static final long FRONT_MS = 60 * 1000;   // tolerate something else in front this long (e.g. Android settings)
     private static final long CHECK_MS = 3000;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -36,7 +36,7 @@ public class KeepAliveService extends Service {
             try {
                 guard();
             } catch (RuntimeException e) {
-                Log.w("NowPlaying", "Wache: " + e);
+                Log.w("NowPlaying", "Watchdog: " + e);
             }
             ui.postDelayed(this, CHECK_MS);
         }
@@ -50,7 +50,7 @@ public class KeepAliveService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (!MainActivity.running) bringToFront("Anzeige laeuft nicht: starten");
+        if (!MainActivity.running) bringToFront("Display not running: starting it");
         if (!watching) {
             watching = true;
             ui.postDelayed(check, CHECK_MS);
@@ -60,7 +60,7 @@ public class KeepAliveService extends Service {
 
     @SuppressWarnings("deprecation")
     private void guard() {
-        // Display aus: nichts zu tun; die Anzeige schaltet es selbst wieder ein, wenn Musik laeuft
+        // Screen off: nothing to do; the display turns it back on itself when music plays
         if (!pm.isScreenOn() || MainActivity.front) {
             awaySince = 0;
             return;
@@ -70,8 +70,8 @@ public class KeepAliveService extends Service {
             awaySince = now;
         } else if (now - awaySince >= FRONT_MS) {
             awaySince = now;
-            bringToFront(MainActivity.running ? "Etwas anderes vorne: Anzeige zurueck nach vorn"
-                    : "Anzeige beendet: neu starten");
+            bringToFront(MainActivity.running ? "Something else in front: bringing display back"
+                    : "Display was terminated: restarting");
         }
     }
 

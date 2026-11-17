@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Default (German) UI strings. English translations live in values-en/strings.xml. -->
+<resources>
+    <string name="app_name">Now Playing</string>
+
+    <!-- Settings dialog (opened by a long press on the display) -->
+    <string name="settings_server_label">Adresse des Now-Playing-Servers auf dem Raspberry:</string>
+    <string name="settings_display_control_active">Display-Steuerung: aktiv (Display geht ohne Musik wirklich aus)</string>
+    <string name="settings_display_control_inactive">Display-Steuerung: nicht aktiv (ohne Musik nur abgedunkelt)</string>
+    <string name="button_save">Speichern</string>
+    <string name="button_enable_display_control">Display-Steuerung aktivieren</string>
+    <string name="button_cancel">Abbrechen</string>
+
+    <!-- Device admin -->
+    <string name="device_admin_explanation">Damit Now Playing das Display ausschalten kann, wenn keine Musik läuft.</string>
+    <string name="device_admin_description">Schaltet das Display aus, wenn keine Musik läuft.</string>
+</resources>

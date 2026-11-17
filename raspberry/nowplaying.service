@@ -1,5 +1,5 @@
 [Unit]
-Description=Now Playing Anzeige-Server (Titel, Cover und Bedienung fuer das Tablet)
+Description=Now Playing display server (track info, cover art and controls for the tablet)
 After=network-online.target
 Wants=network-online.target
 

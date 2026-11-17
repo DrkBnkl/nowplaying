@@ -1,9 +1,9 @@
-# Zugangsdaten (Plex-Token) – nie einchecken
+# Credentials (Plex token, Spotify login) - never commit
 raspberry/nowplaying.env
 raspberry/spotify.json
 **/.env
 
-# Lokale bzw. erzeugte Dateien
+# Local and generated files
 tablet-app/local.properties
 tablet-app/.gradle/
 tablet-app/build/
@@ -13,5 +13,5 @@ tablet-app/app/build/
 __pycache__/
 .DS_Store
 
-# Fruehere Variante (Docker auf der NAS) und alte Bildschirmfotos, nur lokal archiviert
+# Earlier version (Docker on the NAS) and old screenshots, archived locally only
 alt/

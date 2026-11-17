@@ -35,29 +35,29 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 /**
- * Vollbild-Anzeige der Now-Playing-Seite vom Raspberry.
+ * Full-screen display of the Now Playing page served by the Raspberry Pi.
  *
- * Die App fragt alle 3 Sekunden /api/now ab. Meldet der Server
- * "display":"off" (keine Musik), wird das Display
- * ausgeschaltet, bei "on" wieder eingeschaltet. Ist der Server laenger
- * als 2 Minuten nicht erreichbar, geht das Display ebenfalls aus.
+ * The app polls /api/now every 3 seconds. When the server reports
+ * "display":"off" (no music), the screen is turned off; on "on" it is
+ * turned back on. If the server is unreachable for more than 2 minutes,
+ * the screen is turned off as well.
  *
- * Wird das Display ohne Musik von Hand geweckt, geht es von selbst wieder
- * aus: nach 1 Minute, solange die Anzeige vorne ist (Einstellungsfenster
- * zu), nach 5 Minuten, wenn eine andere App offen ist.
+ * If the screen is woken by hand while no music is playing, it turns itself
+ * off again: after 1 minute while the display is in front (settings dialog
+ * closed), after 5 minutes when another app is open.
  *
- * Ausschalten: mit Geraeteadministrator-Recht echt per lockNow(),
- * sonst Helligkeit auf 0 (Rueckfall, wie bei anderen Kiosk-Apps).
+ * Turning off: with device admin rights, a real lockNow();
+ * otherwise brightness 0 (fallback, as other kiosk apps do).
  */
 public class MainActivity extends Activity {
 
     private static final String PREFS = "nowplaying";
     private static final String KEY_URL = "url";
     private static final long POLL_MS = 3000;
-    private static final long RELOCK_MS = 60 * 1000;        // Anzeige vorne
-    private static final long RELOCK_AWAY_MS = 5 * 60 * 1000; // andere App vorne
-    private static final long UNREACHABLE_OFF_MS = 2 * 60 * 1000; // Server weg: Display aus
-    private static final long PAGE_DEAD_MS = 30 * 1000;  // Seite meldet sich nicht: neu laden
+    private static final long RELOCK_MS = 60 * 1000;        // display in front
+    private static final long RELOCK_AWAY_MS = 5 * 60 * 1000; // another app in front
+    private static final long UNREACHABLE_OFF_MS = 2 * 60 * 1000; // server gone: screen off
+    private static final long PAGE_DEAD_MS = 30 * 1000;  // page silent: reload
 
     private WebView web;
     private SpectrumBar bar;
@@ -66,14 +66,14 @@ public class MainActivity extends Activity {
     private volatile boolean alive = true;
     private volatile String baseUrl;
     private String display = "on";
-    private long wokenSince = 0;     // seit wann das Display trotz "off" an ist
+    private long wokenSince = 0;     // since when the screen has been on despite "off"
     private boolean resumed = false;
-    private boolean webPaused = false;      // Seite angehalten, solange das Display aus ist
-    private long lastLoad = 0;              // letzter Ladeversuch der Seite
-    private volatile long lastPing = 0;     // letztes Lebenszeichen der Seite (NowPlayingApp.alive)
-    /** Laeuft die Anzeige in diesem Prozess? Fuer KeepAliveService. */
+    private boolean webPaused = false;      // page paused while the screen is off
+    private long lastLoad = 0;              // last page load attempt
+    private volatile long lastPing = 0;     // last heartbeat from the page (NowPlayingApp.alive)
+    /** Is the display running in this process? Used by KeepAliveService. */
     static volatile boolean running = false;
-    /** Ist die Anzeige gerade vorne (sichtbar und bedienbar)? Fuer die Wache in KeepAliveService. */
+    /** Is the display currently in front (visible and interactive)? Used by the KeepAliveService watchdog. */
     static volatile boolean front = false;
     private AlertDialog settingsDialog;
 
@@ -97,8 +97,8 @@ public class MainActivity extends Activity {
         admin = new ComponentName(this, AdminReceiver.class);
         pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
 
-        // CPU und WLAN wach halten, damit die App auch bei dunklem Display
-        // merkt, wenn Musik startet. Das Tablet haengt ohnehin am Strom.
+        // Keep CPU and Wi-Fi awake so the app notices when music starts even
+        // while the screen is dark. The tablet is plugged in anyway.
         cpuLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "nowplaying:cpu");
         cpuLock.acquire();
         WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
@@ -127,7 +127,7 @@ public class MainActivity extends Activity {
                 retryLoadLater();
             }
         });
-        // Lange druecken (ca. 1 s) oeffnet die Einstellungen
+        // Long press (about 1 s) opens the settings
         web.setLongClickable(true);
         web.setOnLongClickListener(new View.OnLongClickListener() {
             @Override
@@ -136,7 +136,7 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
-        // Die Seite uebergibt die LED-Leiste an die App (siehe SpectrumBar)
+        // The page hands the LED bar over to the app (see SpectrumBar)
         bar = new SpectrumBar(this);
         web.addJavascriptInterface(new Object() {
             @JavascriptInterface
@@ -144,15 +144,15 @@ public class MainActivity extends Activity {
                 bar.configure(on, url, low, mid, high);
             }
 
-            /** Lebenszeichen: die Seite ruft das bei jeder Abfrage (jede Sekunde) auf. */
+            /** Heartbeat: the page calls this on every poll (once per second). */
             @JavascriptInterface
             public void alive() {
                 lastPing = android.os.SystemClock.elapsedRealtime();
             }
         }, "NowPlayingApp");
 
-        // Leiste liegt genau ueber dem Platz, den die Seite dafuer frei laesst
-        // (#spec in index.html: links/rechts 5vw, unten 4.5vh, Hoehe 12vh)
+        // The bar sits exactly over the space the page leaves free for it
+        // (#spec in index.html: left/right 5vw, bottom 4.5vh, height 12vh)
         final FrameLayout root = new FrameLayout(this);
         root.addView(web, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
@@ -180,12 +180,12 @@ public class MainActivity extends Activity {
         if (baseUrl == null) showSettings();
         else loadPage();
         startPoller();
-        // haelt den Prozess am Leben und startet die Anzeige neu, falls Android sie beendet
+        // keeps the process alive and restarts the display if Android kills it
         running = true;
         startService(new Intent(this, KeepAliveService.class));
     }
 
-    // ---------------------------------------------------------------- Seite
+    // ----------------------------------------------------------------- Page
     private void loadPage() {
         lastLoad = android.os.SystemClock.elapsedRealtime();
         if (baseUrl != null) web.loadUrl(baseUrl + "/");
@@ -232,10 +232,10 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        // Zurueck-Taste ignorieren, die Anzeige soll stehen bleiben
+        // Ignore the back button, the display should stay put
     }
 
-    // -------------------------------------------------------- Display an/aus
+    // ------------------------------------------------------ Screen on/off
     private void startPoller() {
         Thread t = new Thread(new Runnable() {
             @Override
@@ -249,8 +249,8 @@ public class MainActivity extends Activity {
                             state = new JSONObject(fetch(url + "/api/now")).optString("display", "on");
                             failingSince = 0;
                         } catch (Exception ignored) {
-                            // Server nicht erreichbar: Zustand zunaechst beibehalten, nach
-                            // UNREACHABLE_OFF_MS das Display ausschalten (kein Standbild fuer Stunden)
+                            // Server unreachable: keep the current state for now, turn the
+                            // screen off after UNREACHABLE_OFF_MS (no frozen image for hours)
                             long now = android.os.SystemClock.elapsedRealtime();
                             if (failingSince == 0) failingSince = now;
                             else if (now - failingSince >= UNREACHABLE_OFF_MS) state = "off";
@@ -274,10 +274,10 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Haelt die Seite geladen (laeuft alle 3 Sekunden, nur bei eingeschaltetem Display): Meldet sie
-     * sich laenger als PAGE_DEAD_MS nicht, obwohl der Server erreichbar ist (nie geladen, haengt,
-     * WebView abgestuerzt), wird sie neu geladen. Dass die Anzeige vorne bleibt, ueberwacht
-     * KeepAliveService: das muss auch gehen, wenn es diese Activity nicht mehr gibt.
+     * Keeps the page loaded (runs every 3 seconds, only while the screen is on): if the page has
+     * been silent for longer than PAGE_DEAD_MS although the server is reachable (never loaded,
+     * hung, WebView crashed), it is reloaded. Keeping the display in front is handled by
+     * KeepAliveService, since that must also work when this activity no longer exists.
      */
     @SuppressWarnings("deprecation")
     private void watchdog(boolean serverReachable) {
@@ -285,7 +285,7 @@ public class MainActivity extends Activity {
         long now = android.os.SystemClock.elapsedRealtime();
         if (serverReachable && baseUrl != null
                 && now - lastPing >= PAGE_DEAD_MS && now - lastLoad >= PAGE_DEAD_MS) {
-            android.util.Log.i("NowPlaying", "Seite meldet sich nicht: neu laden");
+            android.util.Log.i("NowPlaying", "Page not responding: reloading");
             loadPage();
         }
     }
@@ -316,18 +316,18 @@ public class MainActivity extends Activity {
         else turnOn();
     }
 
-    /** Display wurde ohne Musik von Hand geweckt: nach einer Weile wieder aus. */
+    /** Screen was woken by hand without music: turn it off again after a while. */
     @SuppressWarnings("deprecation")
     private void relockIfWoken() {
         if (!dpm.isAdminActive(admin) || !pm.isScreenOn()) {
             wokenSince = 0;
-            if (!pm.isScreenOn()) pauseWeb();   // wieder dunkel (auch von Hand ausgeschaltet)
+            if (!pm.isScreenOn()) pauseWeb();   // dark again (also when switched off by hand)
             return;
         }
         long now = android.os.SystemClock.elapsedRealtime();
         if (wokenSince == 0) wokenSince = now;
-        // Von Hand geweckt: die Seite muss laufen, sonst steht ein eingefrorenes oder leeres Bild da
-        // und die Ueberwachung laedt sie alle 30 s vergeblich neu
+        // Woken by hand: the page must be running, otherwise a frozen or blank image is shown
+        // and the watchdog keeps reloading it every 30 s in vain
         resumeWeb();
         boolean front = resumed && (settingsDialog == null || !settingsDialog.isShowing());
         if (now - wokenSince >= (front ? RELOCK_MS : RELOCK_AWAY_MS)) {
@@ -342,8 +342,8 @@ public class MainActivity extends Activity {
         web.onPause();
     }
 
-    /** Seite weiterlaufen lassen. Sie hat sich waehrend der Pause nicht gemeldet: der Ueberwachung
-     *  wie nach einem Laden Zeit geben, statt die Seite sofort neu zu laden. */
+    /** Resume the page. It sent no heartbeat while paused, so give the watchdog the same grace
+     *  period as after a load instead of reloading the page right away. */
     private void resumeWeb() {
         if (!webPaused) return;
         webPaused = false;
@@ -381,7 +381,7 @@ public class MainActivity extends Activity {
         getWindow().setAttributes(lp);
     }
 
-    // ---------------------------------------------------------- Einstellungen
+    // ------------------------------------------------------------- Settings
     private void showSettings() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -389,26 +389,27 @@ public class MainActivity extends Activity {
         box.setPadding(pad, pad / 2, pad, 0);
 
         TextView hint = new TextView(this);
-        hint.setText("Adresse des Now-Playing-Servers auf dem Raspberry:");
+        hint.setText(getString(R.string.settings_server_label));
         box.addView(hint);
 
         final EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
         input.setSingleLine(true);
-        input.setText(baseUrl != null ? baseUrl : "http://192.168.178.68:8080");
+        input.setText(baseUrl != null ? baseUrl : "");
+        input.setHint("http://<Pi>:8080");  // placeholder, same in every language
         box.addView(input);
 
         TextView status = new TextView(this);
         status.setPadding(0, pad / 2, 0, 0);
         status.setText(dpm.isAdminActive(admin)
-                ? "Display-Steuerung: aktiv (Display geht ohne Musik wirklich aus)"
-                : "Display-Steuerung: nicht aktiv (ohne Musik nur abgedunkelt)");
+                ? getString(R.string.settings_display_control_active)
+                : getString(R.string.settings_display_control_inactive));
         box.addView(status);
 
         settingsDialog = new AlertDialog.Builder(this)
-                .setTitle("Now Playing")
+                .setTitle(R.string.app_name)
                 .setView(box)
-                .setPositiveButton("Speichern", (dialog, which) -> {
+                .setPositiveButton(R.string.button_save, (dialog, which) -> {
                     String u = input.getText().toString().trim();
                     while (u.endsWith("/")) u = u.substring(0, u.length() - 1);
                     if (!u.startsWith("http")) u = "http://" + u;
@@ -416,17 +417,17 @@ public class MainActivity extends Activity {
                     prefs.edit().putString(KEY_URL, u).apply();
                     loadPage();
                 })
-                .setNeutralButton("Display-Steuerung aktivieren", (dialog, which) -> {
+                .setNeutralButton(R.string.button_enable_display_control, (dialog, which) -> {
                     Intent i = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
                     i.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin);
                     i.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                            "Damit Now Playing das Display ausschalten kann, wenn keine Musik läuft.");
+                            getString(R.string.device_admin_explanation));
                     startActivity(i);
                 })
-                .setNegativeButton("Abbrechen", null)
+                .setNegativeButton(R.string.button_cancel, null)
                 .setOnDismissListener(dialog -> bar.setDialogOpen(false))
                 .show();
-        bar.setDialogOpen(true);  // die Leiste liegt ueber allen Fenstern, also solange ausblenden
+        bar.setDialogOpen(true);  // the bar sits above all windows, so hide it meanwhile
     }
 
     @Override
