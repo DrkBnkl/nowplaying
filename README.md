@@ -1,169 +1,175 @@
-# Now Playing – Albumcover und Bedienung auf dem Lenovo Yoga
+# Now Playing – album cover and controls on a Lenovo Yoga tablet
 
-Ein altes Lenovo Yoga Tab 3 steht quer neben der Anlage und zeigt, was gerade läuft: links das Cover, rechts Interpret, Titel, Album und Jahr, unten eine LED-Leiste im Retro-Stil (Spektrumanalysator) in den Farben des Covers. Über Knöpfe auf dem Tablet lässt sich die Musik steuern: Stopp und Play, vor und zurück, ähnliche Titel einfügen (Song Radio), das ganze Album spielen, eine Playlist wählen und zwischen Plex und Spotify umschalten. Läuft keine Musik, geht das Display aus und mit der nächsten Musik von selbst wieder an.
+An old Lenovo Yoga Tab 3 stands sideways next to the hi-fi and shows what is playing: the cover on the left; artist, title, album and year on the right; and along the bottom a retro-style LED bar (spectrum analyzer) in the colors of the cover. Buttons on the tablet control the music: stop and play, next and previous, insert similar tracks (Song Radio), play the whole album, pick a playlist, and switch between Plex and Spotify. When no music is playing, the display turns off, and it turns back on by itself as soon as music starts again.
 
-![Anzeige mit Bedienknöpfen](vorschau/bedienung.png)
+![Display with control buttons](screenshots/controls.png)
 
-| Playlist-Auswahl mit Favoriten und Zufallswiedergabe | Helles Cover (ältere Aufnahme, noch ohne Knöpfe) |
+| Playlist picker with favorites and shuffle | Bright cover (older capture, before the buttons existed) |
 |---|---|
-| ![Playlist-Auswahl](vorschau/playlist-auswahl.png) | ![Helles Cover](vorschau/helles-cover.png) |
+| ![Playlist picker](screenshots/playlist-picker.png) | ![Bright cover](screenshots/bright-cover.png) |
 
 ---
 
-## Inhalt
+## Contents
 
-| Ordner | Was | Wohin |
+| Folder | What | Where it goes |
 |---|---|---|
-| [`raspberry/`](raspberry/) | Anzeige-Server, Anzeigeseite, Spektrum-Dienst, Einrichtung von Spotify Connect „PlexAmpPi“, Spotify-Anmeldung | Raspberry „PlexAmpPi“ |
-| [`tablet-app/`](tablet-app/) | Android-App für das Yoga (Quellcode) | wird zur APK, dann aufs Tablet |
-| [`vorschau/`](vorschau/) | Bildschirmfotos vom echten Tablet | nur zum Ansehen |
+| [`raspberry/`](raspberry/) | Display server, display page, spectrum service, setup of the Spotify Connect device "PlexAmpPi", Spotify login | Raspberry Pi "PlexAmpPi" |
+| [`tablet-app/`](tablet-app/) | Android app for the Yoga (source code) | built into an APK, then installed on the tablet |
+| [`screenshots/`](screenshots/) | Screenshots from the real tablet | for viewing only |
 
-Jeder Ordner hat eine eigene `ANLEITUNG.md` mit allen Einzelschritten. Diese Datei gibt den Überblick.
+Each folder has its own `README.md` with all the detailed steps. This file gives the overview.
 
 ---
 
-## So hängt alles zusammen
+## How it all fits together
 
 ```
-Plexamp (Handy) ──► Caldera ──┐
-                              ├─► Raspberry „PlexAmpPi“ ─► HiFiBerry Digi ─► Toslink ─► WiiM Amp ─► Lautsprecher
-Spotify (Handy) ──► librespot ┘        │
-                                       ├─ Spektrum-Dienst (Port 8090) ── 40 Bänder, 30×/s ───┐
-Plex-Server (NAS) ── Titel, Cover ────►├─ Anzeige-Server  (Port 8080) ───────────────────────┼─► Lenovo Yoga
-Spotify-Web-Schnittstelle ◄───────────►│   Songinfos, Cover, Display an/aus,                 │   (App, Vollbild)
-WiiM (Radio, AirPlay) ── Titel, Cover ►┘   Befehle vom Tablet (Stopp, Skip, Playlist …) ◄────┘
+Plexamp (phone) ──► Caldera ──┐
+                              ├─► Raspberry "PlexAmpPi" ─► HiFiBerry Digi ─► Toslink ─► WiiM Amp ─► speakers
+Spotify (phone) ──► librespot ┘        │
+                                       ├─ Spectrum service (port 8090) ── 40 bands, 30×/s ───┐
+Plex server (NAS) ── titles, covers ──►├─ Display server  (port 8080) ───────────────────────┼─► Lenovo Yoga
+Spotify Web API ◄─────────────────────►│   track info, covers, display on/off,               │   (app, full screen)
+WiiM (radio, AirPlay) ── titles, cover►┘   commands from the tablet (stop, skip, playlist …) ◄┘
 ```
 
-Der Raspberry erledigt alles. Die NAS liefert nur die Musik und über Plex Titel, Cover, Playlists und ähnliche Titel; ein Docker-Container ist nicht nötig. Das Tablet spricht ausschließlich mit dem Pi und braucht keinen Internetzugang.
+The Raspberry Pi does all the work. The NAS only supplies the music and, through Plex, titles, covers, playlists and similar tracks; no Docker container is needed. The tablet talks only to the Pi and needs no internet access.
 
-### Woher die Anzeige ihre Daten hat
+### Where the display gets its data
 
-| Was läuft | Quelle | Jahr | „Danach“ | Fortschritt | LED-Leiste |
+| What is playing | Source | Year | "Up next" | Progress | LED bar |
 |---|---|---|---|---|---|
-| Plexamp → **PlexAmpPi** (Caldera) | Caldera auf dem Pi, Angaben und Cover vom Plex-Server | ja (Albumjahr) | ja | ja | ja |
-| Spotify → **PlexAmpPi** (librespot) | librespot meldet jeden Titelwechsel; Playlist-Name über die Spotify-Web-Schnittstelle | – | – | – | ja |
-| Direkt auf dem WiiM (Radio, AirPlay, Spotify → WiiM) | Schnittstelle des WiiM | – | – | ja, wenn der WiiM eine Länge meldet | – |
+| Plexamp → **PlexAmpPi** (Caldera) | Caldera on the Pi, metadata and cover from the Plex server | yes (album year) | yes | yes | yes |
+| Spotify → **PlexAmpPi** (librespot) | librespot reports every track change; playlist name via the Spotify Web API | – | – | – | yes |
+| Directly on the WiiM (radio, AirPlay, Spotify → WiiM) | WiiM API | – | – | yes, if the WiiM reports a duration | – |
 
-### Was das Tablet anzeigt
+### What the tablet shows
 
-| Zustand | Anzeige |
+| State | Display |
 |---|---|
-| Musik läuft | Cover links; rechts Interpret (groß), Titel, Album · Jahr in Farben aus dem Cover; darunter die Zusatzzeile (siehe unten) und „Danach: …“; Knöpfe; unten Fortschrittslinie und LED-Leiste; unscharfer Cover-Hintergrund |
-| Titelwechsel | Cover, Hintergrund, Text und Farben blenden in 1,5 s über. Bei Plexamp ist das nächste Cover schon vorgeladen. |
-| Pause (Stopp-Knopf oder in der App pausiert) | Cover und Text abgedunkelt, der Stopp-Knopf wird zum Play-Knopf. Nach 3 Minuten (`PAUSE_DELAY`) geht das Display aus. |
-| Musik zu Ende, Quelle weg | Cover abgedunkelt, nach 10 s (`OFF_DELAY`) geht das Display aus |
-| Keine Musik | Display aus. Startet Musik, geht es nach 1–3 s wieder an. |
-| Von Hand geweckt, ohne Musik | Der zuletzt gespielte Titel steht abgedunkelt mit Play-Knopf da; Play setzt an der letzten Stelle fort. Ohne Bedienung geht das Display nach 1 Minute wieder aus. |
+| Music playing | Cover on the left; on the right the artist (large), title, and album · year in colors taken from the cover; below that the extra line (see below) and "Up next: …"; buttons; at the bottom the progress line and LED bar; blurred cover in the background |
+| Track change | Cover, background, text and colors crossfade over 1.5 s. With Plexamp the next cover is already preloaded. |
+| Paused (stop button, or paused in the app) | Cover and text dimmed, the stop button becomes a play button. After 3 minutes (`PAUSE_DELAY`) the display turns off. |
+| Music ended, source gone | Cover dimmed; after 10 s (`OFF_DELAY`) the display turns off |
+| No music | Display off. When music starts, it turns back on within 1–3 s. |
+| Woken by hand, no music | The last played track is shown dimmed with a play button; play resumes where it left off. Without interaction the display turns off again after 1 minute. |
 
-**Zusatzzeile unter dem Album**
+**Extra line below the album**
 
-| Was läuft | Zeile |
+| What is playing | Line |
 |---|---|
-| Playlist | Logo der Quelle (Plex oder Spotify) und Name der Playlist |
-| Von „Song Radio“ eingefügte Titel | Funken-Symbol und „Song Radio: Interpret – Titel“ des Titels, auf den sich die Vorschläge beziehen |
-| Ein ganzes Album in seiner Reihenfolge | Platten-Symbol und „Titel 3 von 10“; die Zeile „Danach“ entfällt |
+| A playlist | Logo of the source (Plex or Spotify) and the playlist name |
+| Tracks inserted by "Song Radio" | Spark icon and "Song Radio: Artist – Title" of the track the suggestions are based on |
+| A whole album in its original order | Record icon and "Track 3 of 10"; the "Up next" line is omitted |
 
-Helle Cover dunkeln den Hintergrund stärker ab, schwarze Cover bekommen einen feinen Rand. Lange Texte brechen an sinnvollen Stellen um (Klammerzusätze und einzelne Interpreten bleiben zusammen); ein einzelnes überlanges Wort wird kleiner geschrieben statt getrennt. Wird der Textblock zu hoch, wird er gekürzt, bevor er in die Knöpfe ragt.
+Bright covers darken the background more; black covers get a thin border. Long text wraps at sensible points (parenthesized additions and individual artist names are kept together); a single overlong word is shrunk rather than hyphenated. If the text block gets too tall, it is truncated before it runs into the buttons.
 
-### Bedienung am Tablet
+### Display language
 
-Untere Reihe, bündig mit dem Text:
+The tablet display and the `/setup` page are in German by default. Set `UI_LANG=en` in `/etc/default/nowplaying` for English (see [Settings](#settings)). The tablet app's own texts (settings dialog, messages) follow the Android system language: English on an English device, German otherwise.
 
-| Knopf | Wirkung | Plex (Caldera) | Spotify auf dem Pi | WiiM |
+### Controls on the tablet
+
+Bottom row, aligned with the text:
+
+| Button | Action | Plex (Caldera) | Spotify on the Pi | WiiM |
 |---|---|---|---|---|
-| Platte | Album des laufenden Titels ab Titel 1 spielen. Ausgegraut, solange schon ein Album läuft. | ja | ja | – |
-| Funken („Song Radio“) | Fügt zehn klanglich ähnliche Titel hinter dem laufenden ein; der laufende spielt weiter. Ausgegraut bei Titeln, die Plex noch nicht klanglich analysiert hat. | ja | – (Spotify gibt eigenen Apps keine Vorschläge mehr heraus) | – |
-| Zurück | vorheriger Titel | ja | ja | ja |
-| Stopp / Play | hält an (Pause) bzw. spielt an derselben Stelle weiter | ja | ja | ja |
-| Vorwärts | nächster Titel | ja | ja | ja |
+| Record | Play the album of the current track from track 1. Grayed out while an album is already playing. | yes | yes | – |
+| Spark ("Song Radio") | Inserts ten sonically similar tracks after the current one; the current track keeps playing. Grayed out for tracks Plex has not yet sonically analyzed. | yes | – (Spotify no longer gives recommendations to third-party apps) | – |
+| Previous | previous track | yes | yes | yes |
+| Stop / Play | pauses, or resumes at the same position | yes | yes | yes |
+| Next | next track | yes | yes | yes |
 
-Obere Reihe rechts (Umschalter und Playlists stehen links neben dem Ansicht-Schalter):
+Top row, right (the source switch and playlists sit to the left of the view switch):
 
-| Knopf | Wirkung |
+| Button | Action |
 |---|---|
-| Ansicht (dreiteiliger Schalter, immer ganz oben rechts) | Drei Felder, jedes zeigt seine Ansicht als kleines Bild; das Feld der laufenden Ansicht ist hell. Antippen wählt direkt: alle Infos mit LED-Leiste · ohne Leiste mit Infos (größeres Cover, Knöpfe unten rechts, wie in der Ansicht des WiiM) · nur das Cover (mittig, so groß wie möglich; alle anderen Knöpfe, Text und Fortschrittslinie sind ausgeblendet). Gilt für Plex und Spotify gemeinsam; der Pi merkt sich die Wahl. |
-| Umschalter Plex / Spotify | Hält die laufende Quelle an und spielt die andere weiter (Plex an der letzten Stelle, Spotify dort, wo das Konto zuletzt war). Farbig ist das Logo der Quelle, die gerade läuft. Zu Spotify dauert es etwa 6 s, weil Caldera die Soundkarte erst 5 s nach der Pause freigibt. |
-| Playlists | Klappt die Auswahl auf: bis zu zehn Playlists der laufenden Quelle in zwei Spalten, Favoriten zuerst, dann die zuletzt gespielten. Antippen startet die Playlist. Der Stern markiert einen Favoriten, ohne zu starten. Oben der Schalter „Zufallswiedergabe“: mischt die laufende Warteschlange und gilt für die nächste gewählte Playlist. Das Feld schließt sich nach 10 s ohne Bedienung. |
+| View (three-part switch, always at the top right) | Three segments, each showing its view as a small picture; the segment of the current view is highlighted. Tapping selects directly: all info with LED bar · info without the bar (larger cover, buttons at the bottom right, like the WiiM view) · cover only (centered, as large as possible; all other buttons, text and the progress line are hidden). Applies to Plex and Spotify alike; the Pi remembers the choice. |
+| Plex / Spotify switch | Stops the current source and resumes the other one (Plex where it left off, Spotify wherever the account last was). The logo of the source currently playing is shown in color. Switching to Spotify takes about 6 s, because Caldera only releases the sound card 5 s after pausing. |
+| Playlists | Opens the picker: up to ten playlists of the current source in two columns, favorites first, then the most recently played. Tapping starts the playlist. The star marks a favorite without starting it. At the top is the "Shuffle" toggle: it shuffles the current queue and applies to the next playlist you choose. The panel closes after 10 s without interaction. |
 
-Läuft Musik direkt am WiiM (Radio, AirPlay, Spotify → WiiM), gibt es keine Leiste. Das Cover ist dann größer, die Knöpfe stehen unten rechts, und oben rechts steht nur der Umschalter (beide Logos grau, kein Playlist-Knopf). Antippen stellt den WiiM auf den optischen Eingang und spielt Plex an der letzten Stelle weiter. Dasselbe geschieht von selbst, wenn Plex oder Spotify auf dem Pi anders gestartet werden (z. B. aus der Plex-App), während der WiiM nicht auf dem optischen Eingang steht. Umgekehrt hält der Server Plex bzw. Spotify auf dem Pi an, sobald am WiiM eigene Musik startet (z. B. Spotify Connect am WiiM); das Tablet zeigt dann den WiiM.
+When music is playing directly on the WiiM (radio, AirPlay, Spotify → WiiM), there is no LED bar. The cover is larger, the buttons sit at the bottom right, and at the top right there is only the source switch (both logos gray, no playlist button). Tapping it sets the WiiM to its optical input and resumes Plex where it left off. The same happens automatically when Plex or Spotify on the Pi is started some other way (e.g. from the Plex app) while the WiiM is not on the optical input. Conversely, the server stops Plex or Spotify on the Pi as soon as the WiiM starts playing its own music (e.g. Spotify Connect on the WiiM); the tablet then shows the WiiM.
 
-Lange auf den Bildschirm drücken öffnet die Einstellungen der App.
+A long press on the screen opens the app settings.
 
-Für Spotify (Umschalter, Knöpfe, Playlists) muss die Spotify-Web-Schnittstelle einmalig eingerichtet sein, siehe [`raspberry/ANLEITUNG.md`](raspberry/ANLEITUNG.md). Ohne sie bleibt Spotify eine reine Anzeige.
+For Spotify (switch, buttons, playlists) the Spotify Web API must be set up once, see [`raspberry/README.md`](raspberry/README.md). Without it, Spotify is display-only.
 
-### Wichtig im Alltag
+### Good to know in everyday use
 
-- Für Musik über den Pi muss der WiiM auf dem **optischen Eingang** stehen.
-- **Lautstärke nur am WiiM regeln.** Caldera (Lautstärke 100) und Spotify liefern vollen Pegel; Spotify ist um 2 dB abgesenkt, damit beide etwa gleich laut sind (nach Gehör eingestellt, `SPOTIFY_PREGAIN`). Wird Calderas Lautstärke in der Plex-App verstellt, stimmt das nicht mehr.
-- Caldera und Spotify teilen sich die Soundkarte: **Es spielt immer nur eine Quelle.** Der Umschalter am Tablet erledigt den Wechsel. Startest du die andere Quelle vom Handy aus, hält der Server die bisherige selbst an und bringt die neue zum Spielen; das dauert etwa 10–15 s (die Soundkarte wird erst nach 5 s frei).
-- Spotify auf dem Pi: Alben und Playlists laufen durch; nach einem Einzeltitel stoppt die Wiedergabe, weil Autoplay dort nicht lädt.
-- Der Anzeige-Server hat keine Anmeldung: Wer im Heimnetz ist, kann die Knöpfe auch auslösen.
+- For music via the Pi, the WiiM must be set to its **optical input**.
+- **Only adjust the volume on the WiiM.** Caldera (volume 100) and Spotify output full level; Spotify is lowered by 2 dB so both sound about equally loud (tuned by ear, `SPOTIFY_PREGAIN`). If Caldera's volume is changed in the Plex app, this no longer holds.
+- Caldera and Spotify share the sound card: **only one source plays at a time.** The switch on the tablet handles the change. If you start the other source from your phone, the server stops the previous one itself and gets the new one playing; this takes about 10–15 s (the sound card is only released after 5 s).
+- Spotify on the Pi: albums and playlists play through; after a single track playback stops, because autoplay does not load there.
+- The display server has no authentication: anyone on the home network can trigger the buttons too.
 
 ---
 
-## Einrichtung
+## Setup
 
-1. **Raspberry:** [`raspberry/ANLEITUNG.md`](raspberry/ANLEITUNG.md) – Ordner auf den Pi kopieren, `sudo ./install.sh`; für die Spotify-Steuerung zusätzlich die einmalige Anmeldung.
-2. **Tablet:** [`tablet-app/ANLEITUNG.md`](tablet-app/ANLEITUNG.md) – APK bauen und installieren, Adresse des Pi eintragen, Display-Steuerung aktivieren, Bildschirmsperre „Keine“.
+1. **Raspberry Pi:** [`raspberry/README.md`](raspberry/README.md) – copy the folder to the Pi, run `sudo ./install.sh`; for Spotify control, additionally do the one-time login.
+2. **Tablet:** [`tablet-app/README.md`](tablet-app/README.md) – build and install the APK, enter the Pi's address, enable display control, set the screen lock to "None".
 
-### Einstellungen
+### Settings
 
-| Was | Datei auf dem Pi | Vorlage im Repository |
+| What | File on the Pi | Template in the repository |
 |---|---|---|
-| Anzeige-Server (Plex, WiiM, Spotify, Zeiten, Anzahl Playlists) | `/etc/default/nowplaying` | `raspberry/nowplaying.default.beispiel` |
-| Spektrum (`DELAY_MS`, Empfindlichkeit) | `/etc/default/nowplaying-spectrum` | `raspberry/nowplaying-spectrum.default` |
-| Spotify Connect (Name, Lautheit, Absenkung) | `/etc/raspotify/conf` | wird von `install.sh` gesetzt |
-| Spotify-Anmeldung, Favoriten | `/var/lib/private/nowplaying/` | entsteht im Betrieb |
+| Display server (Plex, WiiM, Spotify, timings, number of playlists, display language `UI_LANG`) | `/etc/default/nowplaying` | `raspberry/nowplaying.default.example` |
+| Spectrum (`DELAY_MS`, sensitivity) | `/etc/default/nowplaying-spectrum` | `raspberry/nowplaying-spectrum.default` |
+| Spotify Connect (name, normalization, pregain) | `/etc/raspotify/conf` | set by `install.sh` |
+| Spotify login, favorites | `/var/lib/private/nowplaying/` | created at runtime |
 
-Nicht ins Repository gehören und sind per `.gitignore` ausgeschlossen: `raspberry/nowplaying.env` (lokale Kopie der Vorlage mit dem Plex-Token) und `raspberry/spotify.json` (Spotify-Anmeldung).
+`UI_LANG` sets the language of the tablet display and the `/setup` page: `de` (default) or `en`.
 
----
-
-## Eingerichteter Stand (14.11.2026)
-
-- **Raspberry** „PlexAmpPi“ (Pi 3B, HiFiBerry Digi, Debian 13): Dienste `nowplaying`, `nowplaying-spectrum`, `raspotify` laufen.
-  Caldera: Abtastrate der Quelle, Lautstärke 100, Lautheitsangleichung und Übergänge an. Spektrum-Verzögerung `DELAY_MS=0`. Spotify: Absenkung −2 dB, Web-Schnittstelle eingerichtet, Raspotify merkt sich die Anmeldung.
-- **Tablet** Lenovo Yoga Tab 3 8" (YT3-850L, Android 6.0.1): App 1.9, Adresse `http://<Pi>:8080`, Display-Steuerung aktiv, Bildschirmsperre „Keine“, nicht benötigte Apps entfernt bzw. deaktiviert, USB-Debugging an.
-- **Getestet** mit echter Musik: Plexamp und Spotify über den Pi mit Cover, Songinfos und Leiste; Überblendung; Display aus und an; Stopp/Play, Skip, Song Radio, Album, Playlist-Start, Favoriten und Zufallswiedergabe bei Plex; Umschalter in beide Richtungen; Skip, Stopp, Play und Playlist-Start bei Spotify; „immer nur eine Quelle“ in beide Richtungen (andere Quelle am Server vorbei gestartet).
-- **Noch nicht getestet:** alle Knöpfe am WiiM, die Ansicht des WiiM am Tablet und der Umschalter vom WiiM zu Plex; Album-Knopf, Favoriten und Zufallswiedergabe bei Spotify; Weiterlaufen der Seite nach Wecken von Hand ohne Musik (App 1.9); Display aus nach 3 Minuten Pause.
+The following do not belong in the repository and are excluded via `.gitignore`: `raspberry/nowplaying.env` (local copy of the template containing the Plex token) and `raspberry/spotify.json` (Spotify login).
 
 ---
 
-## Fehlersuche: Wo anfangen?
+## Current setup (as of 2026-11-14)
 
-| Was du siehst | Wo nachsehen |
+- **Raspberry Pi** "PlexAmpPi" (Pi 3B, HiFiBerry Digi, Debian 13): services `nowplaying`, `nowplaying-spectrum` and `raspotify` are running.
+  Caldera: source sample rate, volume 100, loudness normalization and transitions on. Spectrum delay `DELAY_MS=0`. Spotify: pregain −2 dB, Web API set up, Raspotify remembers the login.
+- **Tablet** Lenovo Yoga Tab 3 8" (YT3-850L, Android 6.0.1): app 1.10, address `http://<Pi>:8080`, display control enabled, screen lock "None", unneeded apps removed or disabled, USB debugging on.
+- **Tested** with real music: Plexamp and Spotify via the Pi with cover, track info and LED bar; crossfade; display off and on; stop/play, skip, Song Radio, album, playlist start, favorites and shuffle with Plex; source switch in both directions; skip, stop, play and playlist start with Spotify; "only one source at a time" in both directions (other source started bypassing the server).
+- **Not yet tested:** all buttons on the WiiM, the WiiM view on the tablet, and switching from the WiiM to Plex; album button, favorites and shuffle with Spotify; the page continuing to run after waking by hand without music (since app 1.9); display off after 3 minutes of pause; the English UI texts of app 1.10.
+
+---
+
+## Troubleshooting: where to start?
+
+| What you see | Where to look |
 |---|---|
-| Tablet zeigt gar nichts oder einen Ladefehler | Adresse in der App prüfen (lange drücken); läuft `nowplaying` auf dem Pi? |
-| Display bleibt aus, obwohl Musik läuft | `http://<Pi>:8080/setup`: Zeigt eine Quelle einen Fehler? |
-| Cover da, aber keine Leiste | Läuft die Musik über PlexAmpPi? `curl http://<Pi>:8090/status` |
-| Leiste läuft dem Ton voraus | `DELAY_MS` in `/etc/default/nowplaying-spectrum` erhöhen |
-| Leiste hinkt dem Ton hinterher | Steht `DELAY_MS` in `/etc/default/nowplaying-spectrum` auf 0? Weniger geht nicht; `install.sh` ändert eine vorhandene Datei nicht |
-| Leiste ruckelt | Belegt die App einen ganzen Prozessorkern? Dann zeichnet die Seite dauernd neu (z. B. durch eine Animation in `index.html`). |
-| Kein Ton über den Pi | WiiM auf optischem Eingang? Spielt gerade der andere Player (Caldera/Spotify)? |
-| Umschalter und Spotify-Knöpfe fehlen | `/setup`: „Spotify-Steuerung: eingerichtet“? Sonst Anmeldung wiederholen (`np-spotify-login`). |
-| „Zu Spotify“ tut nichts | Kennt das Spotify-Konto das Gerät „PlexAmpPi“? Einmal in der Spotify-App auswählen. |
-| Funken-Knopf ausgegraut | Der Titel ist in Plex nicht klanglich analysiert; Analyse im Plex-Server anstoßen. |
-| Spotify und Plex verschieden laut | Calderas Lautstärke auf 100? Pegel beider Quellen: `level_db` unter `http://<Pi>:8090/status` |
-| Display geht ohne Musik nicht aus | In der App lange drücken → „Display-Steuerung aktivieren“ |
+| Tablet shows nothing, or a loading error | Check the address in the app (long press); is `nowplaying` running on the Pi? |
+| Display stays off although music is playing | `http://<Pi>:8080/setup`: does a source show an error? |
+| Cover shows, but no LED bar | Is the music playing via PlexAmpPi? `curl http://<Pi>:8090/status` |
+| LED bar runs ahead of the sound | Increase `DELAY_MS` in `/etc/default/nowplaying-spectrum` |
+| LED bar lags behind the sound | Is `DELAY_MS` in `/etc/default/nowplaying-spectrum` set to 0? It cannot go lower; `install.sh` does not change an existing file |
+| LED bar stutters | Is the app using a full CPU core? Then the page is constantly redrawing (e.g. because of an animation in `index.html`). |
+| No sound via the Pi | WiiM on the optical input? Is the other player (Caldera/Spotify) currently playing? |
+| Source switch and Spotify buttons missing | `/setup`: does it say Spotify control is set up? If not, repeat the login (`np-spotify-login`). |
+| "To Spotify" does nothing | Does the Spotify account know the device "PlexAmpPi"? Select it once in the Spotify app. |
+| Spark button grayed out | The track has not been sonically analyzed in Plex; start the analysis on the Plex server. |
+| Spotify and Plex differ in loudness | Is Caldera's volume at 100? Level of both sources: `level_db` at `http://<Pi>:8090/status` |
+| Display does not turn off without music | Long press in the app → "Enable display control" ("Display-Steuerung aktivieren" on a German device) |
 
 ---
 
-## Technik in Kürze
+## Technical overview
 
-- **Anzeige-Server** (`raspberry/np-server`): Python 3, nur Standardbibliothek, systemd-Dienst. Fragt Caldera lokal ab (Plex-Companion-Schnittstelle), liest Calderas Warteschlange (nächster Titel, Playlist, Album), bekommt Spotify-Ereignisse von librespot und fragt den WiiM ab. Befehle vom Tablet (`/api/skip`, `prev`, `stop`, `play`, `similar`, `albumplay`, `shuffle`, `switch`, `playlist`, `favorite`) reicht er an Caldera, den Plex-Server, die Spotify-Web-Schnittstelle oder den WiiM weiter. Alle Cover laufen über den Server und werden vorab zwischengespeichert; so gibt es keine Zertifikatsprobleme mit dem alten Android.
-- **Anzeigeseite** (`raspberry/index.html`): ES5-JavaScript für das Android-WebView. Zwei Ebenen zum Überblenden, Cover-Farben aus einem 32×32-Abbild des Covers, Abfrage jede Sekunde. Sie lädt sich selbst neu, sobald auf dem Pi eine neue Fassung liegt. Im Browser zeichnet sie die LED-Leiste selbst; in der Tablet-App übernimmt das die App.
-- **Spektrum** (`np-spectrum-feed`, `np-spectrum-server`): Das ALSA-Gerät `nowplaying` reicht das Signal unverändert an die HiFiBerry weiter und gibt eine Kopie ab. Daraus werden per FFT (numpy) 40 Bänder von 40 Hz bis 16 kHz und per Server-Sent Events ans Tablet geschickt. Kommt der Dienst nicht hinterher, wird die Kopie verworfen – die Musik läuft immer weiter. `/status` nennt zusätzlich den mittleren Pegel (`level_db`).
-- **Spotify:** Raspotify (librespot 0.8) spielt, feste Lautstärke, Lautheitsangleichung an, Absenkung −2 dB, Ereignisse über `np-librespot-event`. Gesteuert wird über die Spotify-Web-Schnittstelle (Anmeldung mit `np-spotify-login`, PKCE ohne Client-Secret); der Server gleicht alle 10 s ab, ob Spotify auf dem Pi spielt.
-- **Tablet-App** (`tablet-app/`): Java, ohne Fremdbibliotheken, ab Android 5. Zeigt die Seite im Vollbild und zeichnet die LED-Leiste nativ auf einer eigenen Fläche darüber (in der Webansicht kostete sie einen ganzen Prozessorkern; jetzt braucht die App etwa ein Viertel eines Kerns). Schaltet das Display per Geräteadministrator aus und per WakeLock wieder ein, holt sich nach 60 s in den Vordergrund zurück, lädt eine Seite neu, die sich nicht mehr meldet, und startet nach einem Neustart von selbst.
+- **Display server** (`raspberry/np-server`): Python 3, standard library only, systemd service. Polls Caldera locally (Plex Companion API), reads Caldera's play queue (next track, playlist, album), receives Spotify events from librespot and polls the WiiM. It forwards commands from the tablet (`/api/skip`, `prev`, `stop`, `play`, `similar`, `albumplay`, `shuffle`, `switch`, `playlist`, `favorite`) to Caldera, the Plex server, the Spotify Web API or the WiiM. All covers go through the server and are cached in advance; this avoids certificate problems with the old Android version.
+- **Display page** (`raspberry/index.html`): ES5 JavaScript for the Android WebView. Two layers for crossfading, cover colors from a 32×32 thumbnail of the cover, polling every second. It reloads itself as soon as a new version is on the Pi. In a browser it draws the LED bar itself; in the tablet app, the app does that.
+- **Spectrum** (`np-spectrum-feed`, `np-spectrum-server`): the ALSA device `nowplaying` passes the signal unchanged to the HiFiBerry and hands off a copy. From that, an FFT (numpy) computes 40 bands from 40 Hz to 16 kHz, which are sent to the tablet via Server-Sent Events. If the service cannot keep up, the copy is discarded – the music always keeps playing. `/status` also reports the average level (`level_db`).
+- **Spotify:** Raspotify (librespot 0.8) plays, with fixed volume, loudness normalization on, pregain −2 dB, events via `np-librespot-event`. Control goes through the Spotify Web API (login with `np-spotify-login`, PKCE without a client secret); every 10 s the server checks whether Spotify is playing on the Pi.
+- **Tablet app** (`tablet-app/`): Java, no third-party libraries, Android 5 and later. Shows the page full screen and draws the LED bar natively on its own surface on top (in the WebView it cost a full CPU core; now the app uses about a quarter of a core). Turns the display off via device administrator and back on via a wake lock, brings itself back to the foreground after 60 s, reloads a page that has stopped responding, and starts by itself after a reboot. UI texts are German by default and English when the device language is English.
 
 ---
 
-## Sicherheit
+## Security
 
-- **Nur im Heimnetz betreiben.** Anzeige-Server (Port 8080) und Spektrum-Dienst (Port 8090) haben keine Anmeldung: Wer sie erreicht, kann die Musik steuern. Die Ports deshalb nicht im Router freigeben oder anderweitig ins Internet weiterleiten.
-- **Zugangsdaten** (Plex-Token, Spotify-Anmeldung) liegen nur auf dem Pi in `/etc/default/nowplaying` bzw. `/var/lib/private/nowplaying/` und nie im Repository.
-- **Signierschlüssel der Tablet-App:** `tablet-app/keystore/nowplaying.jks` ist absichtlich mit festem Passwort eingecheckt, damit jeder Build als Update der installierten App durchgeht. Er schützt deshalb nichts: Jeder kann damit eine APK bauen, die Android als Update annimmt. APKs nur aus dem eigenen Build bzw. den eigenen GitHub-Actions-Läufen installieren. Wer die App weitergeben will, erzeugt einen eigenen Schlüssel (`keytool -genkeypair -v -keystore eigener.jks -alias nowplaying -keyalg RSA -keysize 2048 -validity 10000`) und trägt ihn in `tablet-app/app/build.gradle` ein.
+- **Run it on your home network only.** The display server (port 8080) and the spectrum service (port 8090) have no authentication: anyone who can reach them can control the music. So do not open these ports on your router or forward them to the internet in any other way.
+- **Credentials** (Plex token, Spotify login) are stored only on the Pi in `/etc/default/nowplaying` and `/var/lib/private/nowplaying/`, and never in the repository.
+- **Tablet app signing key:** `tablet-app/keystore/nowplaying.jks` is deliberately checked in with a fixed password so that every build installs as an update of the existing app. It therefore protects nothing: anyone can use it to build an APK that Android will accept as an update. Only install APKs from your own build or your own GitHub Actions runs. If you want to distribute the app, generate your own key (`keytool -genkeypair -v -keystore own.jks -alias nowplaying -keyalg RSA -keysize 2048 -validity 10000`) and enter it in `tablet-app/app/build.gradle`.
 
-## Lizenz
+## License
 
-[MIT](LICENSE). Die Bildschirmfotos in `vorschau/` zeigen Albumcover und Namen der jeweiligen Rechteinhaber; sie dienen nur zur Veranschaulichung und fallen nicht unter die Lizenz.
+[MIT](LICENSE). The screenshots in `screenshots/` show album covers and names belonging to their respective rights holders; they are for illustration only and are not covered by the license.

@@ -1,0 +1,38 @@
+# Settings for the Now Playing server. On the Pi: /etc/default/nowplaying
+# After changes:  sudo systemctl restart nowplaying
+
+# --- Display ---
+# Language of the display and the /setup page: de (default) or en
+UI_LANG=de
+
+# --- Plex server (provides track info and cover art for what Caldera plays) ---
+# Address of the Plex server, e.g. http://192.168.1.20:32400
+PLEX_URL=
+# Plex token (see README.md)
+PLEX_TOKEN=
+
+# --- WiiM Amp (radio, AirPlay, Spotify directly on the WiiM) ---
+# IP address of the WiiM, e.g. 192.168.1.30. Empty = off.
+WIIM_HOST=
+
+# --- Spotify Connect on the Pi (Raspotify, name "PlexAmpPi") ---
+SPOTIFY_CONNECT=yes
+# Spotify Web API for the switcher, skip and stop (see README.md,
+# one-time setup with np-spotify-login). Empty = off.
+SPOTIFY_CLIENT_ID=
+# Name of the Spotify Connect device on this Pi
+SPOTIFY_DEVICE=PlexAmpPi
+
+# --- Fine-tuning ---
+# Seconds the cover stays visible after the music is paused or ends,
+# then the display turns off (back on as soon as music plays again)
+OFF_DELAY=10
+# Number of playlists in the picker on the tablet (favourites first, then recently played)
+PLAYLIST_COUNT=10
+# Seconds the cover with a play button stays visible after pause/stop (Caldera, WiiM)
+PAUSE_DELAY=180
+# Spectrum service: auto = this Pi, port 8090
+SPECTRUM_URL=auto
+# Port of the spectrum service; only change it if PORT was changed in
+# /etc/default/nowplaying-spectrum
+SPECTRUM_PORT=8090

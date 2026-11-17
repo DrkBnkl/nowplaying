@@ -1,4 +1,4 @@
-name: Tablet-APK bauen
+name: Build tablet APK
 
 on:
   push:
@@ -20,7 +20,7 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
-      - name: APK bauen
+      - name: Build APK
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease

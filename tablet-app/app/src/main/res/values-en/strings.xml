@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- English UI strings, used when the device language is English. -->
+<resources>
+    <string name="app_name">Now Playing</string>
+
+    <!-- Settings dialog (opened by a long press on the display) -->
+    <string name="settings_server_label">Address of the Now Playing server on the Raspberry Pi:</string>
+    <string name="settings_display_control_active">Display control: active (screen really turns off when no music is playing)</string>
+    <string name="settings_display_control_inactive">Display control: not active (screen is only dimmed when no music is playing)</string>
+    <string name="button_save">Save</string>
+    <string name="button_enable_display_control">Enable display control</string>
+    <string name="button_cancel">Cancel</string>
+
+    <!-- Device admin -->
+    <string name="device_admin_explanation">So that Now Playing can turn the screen off when no music is playing.</string>
+    <string name="device_admin_description">Turns the screen off when no music is playing.</string>
+</resources>

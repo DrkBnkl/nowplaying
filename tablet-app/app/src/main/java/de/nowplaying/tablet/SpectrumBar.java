@@ -19,42 +19,41 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 /**
- * LED-Leiste (Spektrum) als eigene Zeichenflaeche ueber der Webseite.
+ * LED bar (spectrum) drawn on its own surface on top of the web page.
  *
- * In der Webansicht kostet die Leiste auf dem alten Tablet einen ganzen
- * Prozessorkern, weil bei jedem Bild die komplette Seite neu zusammengesetzt
- * wird. Hier liegt sie in einer eigenen Surface: die Seite wird dafuer nicht
- * neu gezeichnet.
+ * Inside the WebView the bar costs a whole CPU core on the old tablet, because
+ * the entire page is recomposited on every frame. Here it lives in its own
+ * Surface, so the page does not need to be redrawn for it.
  *
- * Die Seite meldet ueber NowPlayingApp.bar(...), ob die Leiste erlaubt ist,
- * die Adresse des Spektrum-Dienstes und die drei Farben des Covers. Die Daten
- * holt die Leiste selbst (Server-Sent Events vom Pi). Aussehen und Bewegung
- * entsprechen der Leiste in index.html (40 Spalten, 10 Zeilen).
+ * Via NowPlayingApp.bar(...) the page reports whether the bar is allowed, the
+ * address of the spectrum service and the three cover colours. The bar fetches
+ * the data itself (Server-Sent Events from the Pi). Look and motion match the
+ * bar in index.html (40 columns, 10 rows).
  *
- * Sparsam gezeichnet: das dunkle Raster und die voll leuchtende Leiste liegen
- * als Bilder vor. Pro Bild wird nur der Streifen der geaenderten Spalten
- * erneuert: Raster kopieren, je Spalte den leuchtenden Teil kopieren, Spitze.
+ * Drawn sparingly: the dark grid and the fully lit bar are prepared as bitmaps.
+ * Each frame only redraws the strip of changed columns: copy the grid, copy the
+ * lit part of each column, draw the peak.
  */
 class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
 
     private static final int N = 40, M = 10;
-    private static final long FRAME_MS = 33;        // 30 Bilder/s = Takt der Daten vom Pi
-    private static final long SIGNAL_MS = 4000;     // ohne Signal so lange noch zeigen
-    // Bewegung der Balken je Bild (30 Bilder/s): Anteil des Wegs zum neuen Wert und Fall der Spitzen
+    private static final long FRAME_MS = 33;        // 30 fps = rate of the data from the Pi
+    private static final long SIGNAL_MS = 4000;     // keep showing this long without signal
+    // Bar motion per frame (30 fps): fraction of the way to the new value, and peak fall
     private static final float RISE = 1f, FALL = .6f, PEAK_DROP = .04f;
-    private static final int[][] BANDS = {{0, 5}, {5, 8}, {8, 10}};  // Zeilen [von, bis) je Farbe
+    private static final int[][] BANDS = {{0, 5}, {5, 8}, {8, 10}};  // rows [from, to) per colour
 
     private volatile float[] target = new float[N];
     private volatile long lastData = 0, lastSignal = 0;
     private volatile boolean allowed = false, dialogOpen = false, displayOff = false;
     private volatile String url = "";
-    private volatile int[] colors = {0xFF3E8C9C, 0xFFE9A24F, 0xFFF2E6D0};  // tief, mittel, hoch
+    private volatile int[] colors = {0xFF3E8C9C, 0xFFE9A24F, 0xFFF2E6D0};  // low, mid, high
     private volatile boolean alive = true;
     private volatile Thread drawThread;
 
-    // Nur vom Zeichen-Thread benutzt
+    // Used by the drawing thread only
     private final int[] colX0 = new int[N], colX1 = new int[N], rowY0 = new int[M], rowY1 = new int[M];
-    private Bitmap gridBmp, litBmp;     // dunkles Raster / alle Zellen leuchtend
+    private Bitmap gridBmp, litBmp;     // dark grid / all cells lit
     private int[] bmpColors;
     private final Paint copy = new Paint(), fill = new Paint();
     private final Rect dirty = new Rect(), part = new Rect();
@@ -64,7 +63,7 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
         setZOrderOnTop(true);
         getHolder().setFormat(PixelFormat.TRANSLUCENT);
         getHolder().addCallback(this);
-        copy.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC));  // ersetzen statt mischen
+        copy.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC));  // replace instead of blend
         Thread net = new Thread(new Runnable() {
             @Override
             public void run() { receive(); }
@@ -73,12 +72,12 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
         net.start();
     }
 
-    /** Von der Seite: Leiste erlaubt?, Adresse des Spektrum-Dienstes, Farben als "#rrggbb". */
+    /** From the page: bar allowed?, address of the spectrum service, colours as "#rrggbb". */
     void configure(boolean on, String spectrumUrl, String low, String mid, String high) {
         int[] c = colors.clone();
         String[] in = {low, mid, high};
         for (int i = 0; i < 3; i++) {
-            try { c[i] = Color.parseColor(in[i]); } catch (Exception ignored) { /* alte Farbe behalten */ }
+            try { c[i] = Color.parseColor(in[i]); } catch (Exception ignored) { /* keep old colour */ }
         }
         colors = c;
         url = spectrumUrl == null ? "" : spectrumUrl;
@@ -93,7 +92,7 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
 
     private boolean wanted() { return alive && allowed && !dialogOpen && !displayOff; }
 
-    // ------------------------------------------------------------ Daten
+    // ------------------------------------------------------------- Data
     private void receive() {
         while (alive) {
             String u = url;
@@ -102,7 +101,7 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
                 try {
                     c = (HttpURLConnection) new URL(u).openConnection();
                     c.setConnectTimeout(4000);
-                    c.setReadTimeout(10000);  // der Pi sendet mindestens zweimal pro Sekunde
+                    c.setReadTimeout(10000);  // the Pi sends at least twice per second
                     c.setRequestProperty("Accept", "text/event-stream");
                     BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream(), "UTF-8"));
                     String line;
@@ -110,7 +109,7 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
                         if (line.startsWith("data:")) onData(line.substring(5).trim());
                     }
                 } catch (Exception ignored) {
-                    // Dienst nicht erreichbar: gleich noch einmal versuchen
+                    // service unreachable: try again shortly
                 } finally {
                     if (c != null) c.disconnect();
                 }
@@ -136,7 +135,7 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
         if (sum > .2f) lastSignal = now;
     }
 
-    // --------------------------------------------------------- Zeichnen
+    // ------------------------------------------------------------ Drawing
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
         Thread t = new Thread(new Runnable() {
@@ -164,11 +163,11 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
         float[] lv = new float[N], pk = new float[N];
         int[] lit = new int[N], peak = new int[N], shown = new int[N];
         boolean visible = false, first = true;
-        boolean full = true;   // beim naechsten Bild alles zeichnen
-        gridBmp = null;        // neue Flaeche: Bilder neu aufbauen
+        boolean full = true;   // draw everything on the next frame
+        gridBmp = null;        // new surface: rebuild bitmaps
         while (alive && drawThread == Thread.currentThread()) {
             long t0 = SystemClock.elapsedRealtime();
-            // Leiste nur zeigen, wenn der Pi gerade wirklich Signal liefert (Musik direkt am WiiM: keins)
+            // Only show the bar while the Pi actually delivers a signal (music played directly on the WiiM: none)
             boolean show = wanted() && t0 - lastSignal <= SIGNAL_MS;
             if (!show) {
                 if (visible || first) {
@@ -183,9 +182,9 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
             }
             float[] tg = t0 - lastData > 1000 ? new float[N] : target;
             int[] col = colors;
-            int from = N, to = -1;   // geaenderte Spalten [from, to]
+            int from = N, to = -1;   // changed columns [from, to]
             for (int i = 0; i < N; i++) {
-                // Anstieg sofort (keine Verzoegerung), Abfall in wenigen Bildern, Spitzen fallen in gut 0,8 s
+                // Rise immediately (no delay), fall within a few frames, peaks drop in just over 0.8 s
                 lv[i] += (tg[i] - lv[i]) * (tg[i] > lv[i] ? RISE : FALL);
                 pk[i] = lv[i] >= pk[i] ? lv[i] : Math.max(lv[i], pk[i] - PEAK_DROP);
                 lit[i] = Math.round(lv[i] * M);
@@ -200,7 +199,7 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
             if (full || col != bmpColors) { from = 0; to = N - 1; }
             if (to >= 0) {
                 if (paint(lit, peak, col, from, to)) { visible = true; full = false; }
-                else full = true;   // nicht gezeichnet: beim naechsten Mal alles nachholen
+                else full = true;   // not drawn: catch up on everything next time
             }
             pause(FRAME_MS - (SystemClock.elapsedRealtime() - t0));
         }
@@ -211,7 +210,7 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
         try { Thread.sleep(ms); } catch (InterruptedException ignored) { }
     }
 
-    /** Flaeche leeren (durchsichtig). */
+    /** Clear the surface (transparent). */
     private void clear() {
         SurfaceHolder holder = getHolder();
         Canvas c = null;
@@ -226,7 +225,7 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
         }
     }
 
-    /** Raster und voll leuchtende Leiste als Bilder aufbauen. Liefert false, wenn nichts zu tun war. */
+    /** Build the grid and fully lit bar as bitmaps. Returns false if there was nothing to do. */
     private boolean prepare(int w, int h, int[] col) {
         if (gridBmp != null && gridBmp.getWidth() == w && gridBmp.getHeight() == h && col == bmpColors) return false;
         float gx = w * .006f, gy = h * .03f;
@@ -250,7 +249,7 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
         for (int b = 0; b < BANDS.length; b++) {
             for (int r = BANDS[b][0]; r < BANDS[b][1]; r++) {
                 for (int i = 0; i < N; i++) {
-                    fill.setColor((col[b] & 0x00FFFFFF) | 0x14000000);   // dunkle Zelle (8 %)
+                    fill.setColor((col[b] & 0x00FFFFFF) | 0x14000000);   // dark cell (8 %)
                     g.drawRect(colX0[i], rowY0[r], colX1[i], rowY1[r], fill);
                     fill.setColor(col[b]);
                     l.drawRect(colX0[i], rowY0[r], colX1[i], rowY1[r], fill);
@@ -261,7 +260,7 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
         return true;
     }
 
-    /** Zeichnet die Spalten [from, to] neu (bei neuer Groesse oder neuen Farben alles). */
+    /** Redraws columns [from, to] (everything on a new size or new colours). */
     private boolean paint(int[] lit, int[] peak, int[] col, int from, int to) {
         SurfaceHolder holder = getHolder();
         Rect frame = holder.getSurfaceFrame();
@@ -271,7 +270,7 @@ class SpectrumBar extends SurfaceView implements SurfaceHolder.Callback {
         try {
             if (prepare(w, h, col)) { from = 0; to = N - 1; }
             dirty.set(colX0[from], 0, colX1[to], h);
-            c = holder.lockCanvas(dirty);   // das System darf den Bereich vergroessern
+            c = holder.lockCanvas(dirty);   // the system may enlarge the area
             if (c == null || c.getWidth() != w || c.getHeight() != h) return false;
             c.drawBitmap(gridBmp, dirty, dirty, copy);
             fill.setColor(col[2]);

@@ -2,6 +2,6 @@ package de.nowplaying.tablet;
 
 import android.app.admin.DeviceAdminReceiver;
 
-/** Wird nur benoetigt, damit die App das Display per lockNow() ausschalten darf. */
+/** Only needed so the app is allowed to turn the display off via lockNow(). */
 public class AdminReceiver extends DeviceAdminReceiver {
 }

@@ -1,10 +1,10 @@
 #!/usr/bin/python3 -S
-"""Wird von librespot (Raspotify) bei jedem Ereignis aufgerufen (--onevent).
+"""Called by librespot (Raspotify) on every event (--onevent).
 
-librespot uebergibt die Angaben als Umgebungsvariablen (PLAYER_EVENT,
-NAME, ARTISTS, ALBUM, COVERS ...). Dieses Programm reicht sie an den
-Now-Playing-Server weiter. Es darf librespot nie aufhalten: kurzer
-Timeout, alle Fehler werden verschluckt.
+librespot passes the details as environment variables (PLAYER_EVENT,
+NAME, ARTISTS, ALBUM, COVERS ...). This program forwards them to the
+Now Playing server. It must never hold up librespot: short timeout,
+all errors are swallowed.
 """
 import json
 import os
@@ -18,7 +18,7 @@ def main():
     ev = {"event": os.environ.get("PLAYER_EVENT", "")}
     if not ev["event"]:
         return
-    ev["pid"] = os.getppid()  # librespot selbst: der Server merkt so, wenn der Prozess endet
+    ev["pid"] = os.getppid()  # librespot itself: lets the server notice when the process exits
     for f in FIELDS:
         v = os.environ.get(f.upper())
         if v:

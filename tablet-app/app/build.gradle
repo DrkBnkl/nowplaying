@@ -9,15 +9,15 @@ android {
     defaultConfig {
         applicationId 'de.nowplaying.tablet'
         minSdk 21
-        // Bewusst niedrig: einfache Berechtigungen, laeuft problemlos auf Android 7
+        // Deliberately low: simple permission model, runs fine on Android 7
         targetSdk 28
-        versionCode 10
-        versionName '1.9'
+        versionCode 11
+        versionName '1.10'
     }
 
-    // Fester Schluessel im Projekt, damit Updates ohne Deinstallation gehen.
-    // Nur fuer den privaten Gebrauch gedacht: Schluessel und Passwort sind oeffentlich,
-    // der Schluessel schuetzt also nichts (siehe README, Abschnitt Sicherheit).
+    // Fixed key checked into the project so updates install without uninstalling first.
+    // Intended for private use only: key and password are public, so the key
+    // protects nothing (see README, section Security).
     signingConfigs {
         fixed {
             storeFile file('../keystore/nowplaying.jks')
