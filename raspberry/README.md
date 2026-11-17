@@ -1,5 +1,7 @@
 # Raspberry Pi
 
+The Pi sits on the WiiM's optical input. It runs the display server, which polls the WiiM, and produces the LED spectrum for everything played through it (Plexamp and Spotify).
+
 | Service | Port | Purpose |
 |---|---|---|
 | `nowplaying` | 8080 | Display server: page, track info, covers, commands. Status page: `/setup` |
@@ -19,7 +21,7 @@ With `WIIM_HOST` set, the server polls the WiiM's HTTP API every 5 s:
 
 ## Install
 
-Copy `nowplaying.default.example` to `nowplaying.env` and fill in at least `PLEX_URL` and `PLEX_TOKEN` (the file is git-ignored). Then:
+Copy `nowplaying.default.example` to `nowplaying.env` and fill in at least `WIIM_HOST`, plus `PLEX_URL` and `PLEX_TOKEN` if you use Plexamp (the file is git-ignored). Then:
 
 ```bash
 scp -r raspberry <user>@<Pi>:
