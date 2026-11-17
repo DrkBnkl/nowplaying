@@ -1,18 +1,21 @@
 # Now Playing
 
-A now-playing display for an old Android tablet next to the hi-fi: cover art, track info and a retro LED spectrum in the cover's colors, plus touch controls for Plexamp and Spotify. A Raspberry Pi does all the work; the tablet just shows a page. The display turns off when the music stops and back on when it starts.
+A now-playing display for an old Android tablet next to the hi-fi: cover art, track info and a retro LED spectrum in the cover's colors, plus touch controls for Plexamp, Spotify and a WiiM streamer/amp. A Raspberry Pi does all the work; the tablet just shows a page. The display turns off when the music stops and back on when it starts.
 
 ![Now playing with controls](screenshots/controls.png)
 
 | Playlist picker | Colors follow the cover |
 |---|---|
 | ![Playlist picker](screenshots/playlist-picker.png) | ![Bright cover](screenshots/bright-cover.png) |
+| **WiiM view** (radio, AirPlay) | |
+| ![WiiM view](screenshots/wiim.png) | |
 
 ## Features
 
-- **Sources:** Plexamp headless (Caldera) and Spotify Connect (librespot) on the Pi; a WiiM streamer (radio, AirPlay) is shown too.
+- **Sources:** Plexamp headless (Caldera) and Spotify Connect (librespot) on the Pi, plus anything playing directly on a WiiM (radio, AirPlay, Spotify on the WiiM).
 - **Display:** cover, artist, title, album and year, playlist or "Track n of m", up next, progress, 40-band LED spectrum, crossfade on track change.
 - **Controls:** play/pause, previous/next, Song Radio (similar tracks, Plex only), play album, playlists with favorites and shuffle, Plex ↔ Spotify switch, three layouts (full, no spectrum, cover only).
+- **WiiM integration:** the Pi plays into the WiiM's optical input. Music started on the WiiM gets its own view with previous/play/next; the source switch sets the WiiM back to optical and resumes Plex. The WiiM switches to optical by itself when Plex or Spotify starts on the Pi, and the Pi pauses when the WiiM starts its own music.
 - **Only one source at a time:** starting one source pauses the other.
 - **Tablet app:** full screen, native spectrum drawing, display on/off, self-healing watchdog, autostart. Runs on Android 5+.
 
@@ -20,12 +23,15 @@ A now-playing display for an old Android tablet next to the hi-fi: cover art, tr
 
 ```
 Plexamp ─► Caldera ──┐
-                     ├─► Raspberry Pi ─► HiFiBerry Digi ─► amplifier
-Spotify ─► librespot ┘     ├─ np-server           :8080  track info, covers, commands
-                           └─ np-spectrum-server  :8090  40 bands, 30×/s
+                     ├─► Raspberry Pi ─► HiFiBerry ──optical──► WiiM Amp ─► speakers
+Spotify ─► librespot ┘    │                                     ▲  (also radio, AirPlay, …)
+                          ├─ np-server :8080 ◄── WiiM HTTP API ─┘
+                          │    track info, covers, commands
+                          └─ np-spectrum-server :8090
+                               40 bands, 30×/s
                                      │
                                      ▼
-                           Android tablet (app, full screen)
+                          Android tablet (app, full screen)
 ```
 
 The Pi gets metadata from Caldera, the Plex server, librespot, the Spotify Web API and the WiiM. An ALSA device passes the audio through untouched and feeds a copy to the spectrum service. Python 3 standard library plus numpy, no Docker, no cloud. The tablet only needs to reach the Pi.
@@ -43,6 +49,7 @@ Settings live in `/etc/default/nowplaying` (template: [`raspberry/nowplaying.def
 
 - Raspberry Pi with a HiFiBerry (or other ALSA card), Debian/Raspberry Pi OS
 - Plexamp headless (Caldera) and a Plex server; Spotify Premium for Spotify control
+- Optional: a WiiM streamer/amp (developed with a WiiM Amp; set `WIIM_HOST`)
 - Any Android 5+ tablet (developed on a Lenovo Yoga Tab 3)
 
 ## Security

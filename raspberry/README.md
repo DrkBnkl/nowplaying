@@ -8,6 +8,15 @@
 
 Caldera (Plexamp headless) runs as before. The ALSA device `nowplaying` passes the audio to the card unchanged and feeds a copy to the spectrum service; if that falls behind, the copy is dropped and the music keeps playing.
 
+## WiiM
+
+With `WIIM_HOST` set, the server polls the WiiM's HTTP API every 5 s:
+
+- The Pi's output goes to the WiiM's **optical input**; set the volume on the WiiM only.
+- Music playing directly on the WiiM (radio, AirPlay, Spotify on the WiiM) is shown in its own view: larger cover, previous/play/next, no LED bar (the audio doesn't pass through the Pi).
+- The source switch in that view sets the WiiM to optical and resumes Plex where it left off. The same happens automatically when Plex or Spotify is started on the Pi while the WiiM is on another input.
+- When the WiiM starts its own music, the server pauses Plex/Spotify on the Pi.
+
 ## Install
 
 Copy `nowplaying.default.example` to `nowplaying.env` and fill in at least `PLEX_URL` and `PLEX_TOKEN` (the file is git-ignored). Then:
@@ -70,6 +79,6 @@ POST requests need the header `X-NowPlaying: 1` (blocks cross-site requests from
 | Display stays off or shows an error | `http://<Pi>:8080/setup`, `systemctl status nowplaying` |
 | No LED bar | `curl http://localhost:8090/status` (`"active": true`?) |
 | Music stops or skips by itself | `journalctl -u nowplaying`: every command is logged with its sender ("Command stop (caldera) from …"), and so is every automatic pause ("Automatic …"). |
-| One source silent | The other still holds the sound card; the server sorts it out within ~10 s. |
+| One source silent | The other still holds the sound card; the server sorts it out within ~10 s. Is the WiiM on the optical input? |
 | Spotify switch missing | `/setup` shows whether Spotify control is set up; check `SPOTIFY_CLIENT_ID` and `spotify.json`. |
 | Song Radio grayed out | The track has no sonic analysis in Plex yet. |
