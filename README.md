@@ -15,7 +15,7 @@ A **Raspberry Pi** on the WiiM's optical input runs the display server. Music pl
 | You play … | Tablet view | LED spectrum | Controls |
 |---|---|---|---|
 | Spotify Connect, AirPlay, radio … **to the WiiM** | WiiM view (title, artist, album, cover) | no | previous / play-pause / next, switch to Plex on the Pi |
-| Plexamp **to the Pi** (Caldera) | full view (+ year, playlist or "Track n of m", up next, progress) | yes | all: play-pause, previous / next, Song Radio, play album, playlists with favorites and shuffle, Plex ↔ Spotify switch |
+| Plexamp **to the Pi** ([Caldera](https://forums.plex.tv/t/plexamp-updates-and-caldera-music/939563)) | full view (+ year, playlist or "Track n of m", up next, progress) | yes | all: play-pause, previous / next, Song Radio, play album, playlists with favorites and shuffle, Plex ↔ Spotify switch |
 | Spotify Connect **to "PlexAmpPi"** | full view (+ playlist) | yes | play-pause, previous / next, play album, playlists, Plex ↔ Spotify switch (needs the one-time Spotify Web API setup) |
 
 The spectrum is computed from the audio passing through the Pi, so music playing directly on the WiiM can't have one.
@@ -59,7 +59,7 @@ Settings live in `/etc/default/nowplaying` (template: [`raspberry/nowplaying.def
 - A WiiM streamer/amp with an optical input (developed with a WiiM Amp)
 - A Raspberry Pi with a HiFiBerry Digi (optical out to the WiiM), Debian/Raspberry Pi OS
 - Any Android 5+ tablet (developed on a Lenovo Yoga Tab 3)
-- Optional: Plexamp headless (Caldera) with a Plex server; Spotify Premium for Spotify control
+- Optional: [Caldera Music](https://forums.plex.tv/t/plexamp-updates-and-caldera-music/939563) on the Pi (the headless player that replaces Plexamp headless, controlled from the Plexamp app) with a Plex server; Spotify Premium for Spotify control
 
 ## Security
 
