@@ -8,7 +8,7 @@ The Pi sits on the WiiM's optical input. It runs the display server, which polls
 | `nowplaying-spectrum` | 8090 | 40 frequency bands, ~30×/s (Server-Sent Events) |
 | `raspotify` | – | Spotify Connect device (default name "PlexAmpPi") |
 
-Caldera (Plexamp headless) runs as before. The ALSA device `nowplaying` passes the audio to the card unchanged and feeds a copy to the spectrum service; if that falls behind, the copy is dropped and the music keeps playing.
+[Caldera Music](https://forums.plex.tv/t/plexamp-updates-and-caldera-music/939563) (the headless successor to Plexamp headless) runs as before and is controlled from the Plexamp app. The ALSA device `nowplaying` passes the audio to the card unchanged and feeds a copy to the spectrum service; if that falls behind, the copy is dropped and the music keeps playing.
 
 ## WiiM
 
